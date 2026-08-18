@@ -25,7 +25,7 @@ pub enum ChildCommand {
 pub enum ChildEvent {
     Ready { pid: u32 },
     MeasurementStarted,
-    Stopped { report: ServerRunReport },
+    Stopped { report: Box<ServerRunReport> },
     Error { message: String },
 }
 
@@ -148,12 +148,12 @@ where
                 write_event(
                     &mut writer,
                     &ChildEvent::Stopped {
-                        report: ServerRunReport {
+                        report: Box::new(ServerRunReport {
                             metrics: result.metrics.into(),
                             workload: result.workload,
                             benchmark_protocol_errors: result.protocol_errors,
                             send_errors: result.send_errors,
-                        },
+                        }),
                     },
                 )
                 .await?;
