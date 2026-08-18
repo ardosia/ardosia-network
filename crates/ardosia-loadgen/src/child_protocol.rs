@@ -22,12 +22,15 @@ pub enum ChildCommand {
     Stop,
 }
 
+// ChildEvent values are ephemeral serde IPC messages. Keeping the periodic snapshot inline avoids
+// a heap allocation on every sampling tick; the enum is never retained in a large collection.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChildEvent {
     Ready { pid: u32 },
     MeasurementStarted,
-    Snapshot { metrics: Box<TransportMetricsReport> },
+    Snapshot { metrics: TransportMetricsReport },
     Stopped { report: Box<ServerRunReport> },
     Error { message: String },
 }
@@ -151,7 +154,7 @@ where
                 write_event(
                     &mut writer,
                     &ChildEvent::Snapshot {
-                        metrics: Box::new(metrics.transport.into()),
+                        metrics: metrics.transport.into(),
                     },
                 )
                 .await?;
