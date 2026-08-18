@@ -58,7 +58,8 @@ pub(crate) async fn run_client_task(
     let mut result = ClientTaskResult::default();
 
     loop {
-        match *phase_rx.borrow() {
+        let phase = *phase_rx.borrow();
+        match phase {
             Phase::Abort => {
                 let _ = client.disconnect(None).await;
                 return result;
