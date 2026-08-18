@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant as StdInstant};
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
@@ -198,6 +199,22 @@ pub(crate) fn frame_kind(kind: TrafficKind) -> FrameKind {
 
 pub(crate) fn period_from_rate(rate: f64) -> Duration {
     Duration::from_secs_f64(1.0 / rate)
+}
+
+pub(crate) fn deterministic_payload(client_id: u64, sequence: u64, len: usize) -> Bytes {
+    let seed = client_id ^ sequence.rotate_left(17) ^ 0xA4D0_51A0_5EED_BA5E;
+    let mut value = mix64(seed);
+    let mut payload = Vec::with_capacity(len);
+    while payload.len() < len {
+        for byte in value.to_le_bytes() {
+            if payload.len() == len {
+                break;
+            }
+            payload.push(byte);
+        }
+        value = mix64(value);
+    }
+    Bytes::from(payload)
 }
 
 pub fn initial_phase_offset(
