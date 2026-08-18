@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -23,13 +25,17 @@ pub enum ScenarioError {
     },
 }
 
-impl Scenario {
-    pub fn from_str(input: &str) -> Result<Self, ScenarioError> {
+impl FromStr for Scenario {
+    type Err = ScenarioError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
         let scenario: Self = toml::from_str(input)?;
         scenario.validate()?;
         Ok(scenario)
     }
+}
 
+impl Scenario {
     pub fn validate(&self) -> Result<(), ScenarioError> {
         if self.clients == 0 {
             return Err(ScenarioError::Invalid {
