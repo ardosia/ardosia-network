@@ -235,7 +235,7 @@ impl ChildTarget {
     async fn stop(&mut self) -> Result<ServerRunReport, RunnerError> {
         self.send(&ChildCommand::Stop).await?;
         match self.recv().await? {
-            ChildEvent::Stopped { report } => Ok(report),
+            ChildEvent::Stopped { report } => Ok(*report),
             ChildEvent::Error { message } => Err(RunnerError::ChildProtocol(message)),
             other => Err(RunnerError::ChildProtocol(format!(
                 "expected stopped event, got {other:?}"
