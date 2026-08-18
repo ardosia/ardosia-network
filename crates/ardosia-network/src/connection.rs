@@ -65,11 +65,7 @@ impl Connection {
         }
     }
 
-    pub async fn send(
-        &self,
-        payload: Bytes,
-        reliability: Reliability,
-    ) -> Result<(), NetworkError> {
+    pub async fn send(&self, payload: Bytes, reliability: Reliability) -> Result<(), NetworkError> {
         if let Some(error) = close_state_error(*self.close.borrow()) {
             return Err(error);
         }
@@ -85,7 +81,9 @@ impl Connection {
             .await
             .map_err(|_| NetworkError::BackendStopped)?;
 
-        response_rx.await.map_err(|_| NetworkError::BackendStopped)?
+        response_rx
+            .await
+            .map_err(|_| NetworkError::BackendStopped)?
     }
 
     pub async fn close(&self) -> Result<(), NetworkError> {
@@ -102,7 +100,9 @@ impl Connection {
             .await
             .map_err(|_| NetworkError::BackendStopped)?;
 
-        response_rx.await.map_err(|_| NetworkError::BackendStopped)?
+        response_rx
+            .await
+            .map_err(|_| NetworkError::BackendStopped)?
     }
 }
 
