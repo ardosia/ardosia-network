@@ -13,6 +13,7 @@ pub enum FrameKind {
     FragmentedReliableOrderedData = 3,
     EchoRequest = 4,
     EchoResponse = 5,
+    ClientHello = 6,
 }
 
 impl TryFrom<u8> for FrameKind {
@@ -25,6 +26,7 @@ impl TryFrom<u8> for FrameKind {
             3 => Ok(Self::FragmentedReliableOrderedData),
             4 => Ok(Self::EchoRequest),
             5 => Ok(Self::EchoResponse),
+            6 => Ok(Self::ClientHello),
             other => Err(FrameError::UnknownKind(other)),
         }
     }
