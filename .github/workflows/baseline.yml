@@ -1,17 +1,28 @@
-name: RakNet Baseline
+name: RakNet Benchmark
 
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: Benchmark scenario
+        required: true
+        type: choice
+        default: steady-300
+        options:
+          - connect-300
+          - steady-300
+          - steady-500
+          - ceiling-1000
 
 permissions:
   contents: read
 
 jobs:
-  connect-300:
+  benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0
-      - name: Run 300-client protocol-8 baseline
-        run: cargo run -p ardosia-loadgen -- local scenarios/connect-300.toml
+      - name: Run selected RakNet benchmark
+        run: cargo run --release -p ardosia-loadgen -- local scenarios/${{ inputs.scenario }}.toml
