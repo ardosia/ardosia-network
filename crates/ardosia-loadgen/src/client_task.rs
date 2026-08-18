@@ -37,8 +37,10 @@ pub(crate) async fn run_client_task(
         sleep(stagger).await;
     }
 
-    let mut config = RaknetClientConfig::default();
-    config.protocol_version = protocol_version;
+    let config = RaknetClientConfig {
+        protocol_version,
+        ..RaknetClientConfig::default()
+    };
 
     let connect = timeout(
         connect_timeout,
