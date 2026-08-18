@@ -204,11 +204,7 @@ async fn handle_server_event(
             snapshot,
             dropped_non_critical_events,
         } => {
-            metrics.ingest_transport_snapshot(
-                shard_id,
-                *snapshot,
-                dropped_non_critical_events,
-            );
+            metrics.ingest_transport_snapshot(shard_id, *snapshot, dropped_non_critical_events);
             false
         }
         _ => false,
