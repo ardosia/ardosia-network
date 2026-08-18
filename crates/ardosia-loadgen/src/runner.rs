@@ -1,11 +1,15 @@
 use std::net::SocketAddr;
+use std::process::Stdio;
 use std::time::Duration;
 
 use ardosia_network::{NetworkError, NetworkMetrics};
 use thiserror::Error;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
+use crate::child_protocol::{ChildCommand, ChildEvent, ServerRunReport};
 use crate::client_task::{ConnectOutcome, Phase, run_client_task};
 use crate::report::{RunCounts, RunReport};
 use crate::scenario::Scenario;
@@ -16,8 +20,17 @@ pub enum RunnerError {
     #[error(transparent)]
     Network(#[from] NetworkError),
 
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
     #[error("benchmark task failed: {0}")]
     Task(String),
+
+    #[error("child benchmark protocol failed: {0}")]
+    ChildProtocol(String),
+
+    #[error("child benchmark process exited unexpectedly: {0}")]
+    ChildExited(String),
 }
 
 pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
@@ -83,20 +96,28 @@ pub async fn run_local(
     bind_addr: SocketAddr,
     scenario: &Scenario,
 ) -> Result<RunReport, RunnerError> {
-    let (stop_tx, server_task) = server_target::spawn_local_target(
-        bind_addr,
-        scenario.protocol_version,
-        scenario.clients.saturating_add(64).max(1),
-    )
-    .await?;
+    let mut child = ChildTarget::spawn(bind_addr, scenario).await?;
+
+    if let Err(error) = child.begin_measurement().await {
+        child.abort().await;
+        return Err(error);
+    }
 
     let mut report = run_clients(bind_addr, scenario).await;
-    let _ = stop_tx.send(true);
+    let server_report = match child.stop().await {
+        Ok(report) => report,
+        Err(error) => {
+            child.abort().await;
+            return Err(error);
+        }
+    };
 
-    let metrics = server_task
-        .await
-        .map_err(|error| RunnerError::Task(error.to_string()))??;
-    report.add_protocol_errors(metrics.protocol_errors_total as usize);
+    if let Err(error) = child.reap().await {
+        child.abort().await;
+        return Err(error);
+    }
+
+    report.add_protocol_errors(server_report.metrics.protocol_errors_total as usize);
     Ok(report)
 }
 
@@ -107,6 +128,133 @@ pub async fn serve_until(
     stop_rx: watch::Receiver<bool>,
 ) -> Result<NetworkMetrics, RunnerError> {
     server_target::serve_until(bind_addr, protocol_version, max_connections, stop_rx).await
+}
+
+struct ChildTarget {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: Lines<BufReader<ChildStdout>>,
+    pid: u32,
+}
+
+impl ChildTarget {
+    async fn spawn(bind_addr: SocketAddr, scenario: &Scenario) -> Result<Self, RunnerError> {
+        let executable = std::env::current_exe()?;
+        let mut child = Command::new(executable)
+            .arg("serve-child")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()?;
+
+        let pid = child
+            .id()
+            .ok_or_else(|| RunnerError::ChildExited("process has no PID".into()))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| RunnerError::ChildProtocol("child stdin was not piped".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| RunnerError::ChildProtocol("child stdout was not piped".into()))?;
+        let mut target = Self {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout).lines(),
+            pid,
+        };
+
+        if let Err(error) = target
+            .send(&ChildCommand::Start {
+                bind_addr: bind_addr.to_string(),
+                scenario: scenario.clone(),
+            })
+            .await
+        {
+            target.abort().await;
+            return Err(error);
+        }
+
+        match target.recv().await {
+            Ok(ChildEvent::Ready { pid }) if pid == target.pid => Ok(target),
+            Ok(ChildEvent::Ready { pid }) => {
+                target.abort().await;
+                Err(RunnerError::ChildProtocol(format!(
+                    "ready PID {pid} did not match spawned PID {}",
+                    target.pid
+                )))
+            }
+            Ok(ChildEvent::Error { message }) => {
+                target.abort().await;
+                Err(RunnerError::ChildProtocol(message))
+            }
+            Ok(other) => {
+                target.abort().await;
+                Err(RunnerError::ChildProtocol(format!(
+                    "expected ready event, got {other:?}"
+                )))
+            }
+            Err(error) => {
+                target.abort().await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn begin_measurement(&mut self) -> Result<(), RunnerError> {
+        self.send(&ChildCommand::BeginMeasurement).await?;
+        match self.recv().await? {
+            ChildEvent::MeasurementStarted => Ok(()),
+            ChildEvent::Error { message } => Err(RunnerError::ChildProtocol(message)),
+            other => Err(RunnerError::ChildProtocol(format!(
+                "expected measurement_started event, got {other:?}"
+            ))),
+        }
+    }
+
+    async fn stop(&mut self) -> Result<ServerRunReport, RunnerError> {
+        self.send(&ChildCommand::Stop).await?;
+        match self.recv().await? {
+            ChildEvent::Stopped { report } => Ok(report),
+            ChildEvent::Error { message } => Err(RunnerError::ChildProtocol(message)),
+            other => Err(RunnerError::ChildProtocol(format!(
+                "expected stopped event, got {other:?}"
+            ))),
+        }
+    }
+
+    async fn send(&mut self, command: &ChildCommand) -> Result<(), RunnerError> {
+        let json = serde_json::to_vec(command)
+            .map_err(|error| RunnerError::ChildProtocol(error.to_string()))?;
+        self.stdin.write_all(&json).await?;
+        self.stdin.write_all(b"\n").await?;
+        self.stdin.flush().await?;
+        Ok(())
+    }
+
+    async fn recv(&mut self) -> Result<ChildEvent, RunnerError> {
+        let Some(line) = self.stdout.next_line().await? else {
+            let status = self.child.wait().await?;
+            return Err(RunnerError::ChildExited(status.to_string()));
+        };
+        serde_json::from_str(&line).map_err(|error| RunnerError::ChildProtocol(error.to_string()))
+    }
+
+    async fn reap(&mut self) -> Result<(), RunnerError> {
+        let status = self.child.wait().await?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(RunnerError::ChildExited(status.to_string()))
+        }
+    }
+
+    async fn abort(&mut self) {
+        let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
+    }
 }
 
 fn stagger_delay(index: usize, clients: usize, ramp_up_seconds: u64) -> Duration {
