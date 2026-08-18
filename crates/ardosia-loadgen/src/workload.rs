@@ -82,9 +82,7 @@ impl WorkloadCounts {
         match kind {
             FrameKind::UnreliableData => Some(&mut self.unreliable),
             FrameKind::ReliableOrderedData => Some(&mut self.reliable_ordered),
-            FrameKind::FragmentedReliableOrderedData => {
-                Some(&mut self.fragmented_reliable_ordered)
-            }
+            FrameKind::FragmentedReliableOrderedData => Some(&mut self.fragmented_reliable_ordered),
             FrameKind::EchoRequest => Some(&mut self.rtt_requests),
             FrameKind::EchoResponse => Some(&mut self.rtt_responses),
             FrameKind::ClientHello => None,
@@ -106,7 +104,11 @@ impl PendingProbes {
         }
     }
 
-    pub fn insert(&mut self, probe_id: u64, started: StdInstant) -> Result<(), PendingProbeOverflow> {
+    pub fn insert(
+        &mut self,
+        probe_id: u64,
+        started: StdInstant,
+    ) -> Result<(), PendingProbeOverflow> {
         if self.entries.len() >= self.capacity && !self.entries.contains_key(&probe_id) {
             return Err(PendingProbeOverflow);
         }
@@ -115,7 +117,9 @@ impl PendingProbes {
     }
 
     pub fn complete(&mut self, probe_id: u64) -> Option<Duration> {
-        self.entries.remove(&probe_id).map(|started| started.elapsed())
+        self.entries
+            .remove(&probe_id)
+            .map(|started| started.elapsed())
     }
 
     pub fn len(&self) -> usize {
