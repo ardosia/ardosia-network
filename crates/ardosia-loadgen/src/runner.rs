@@ -6,7 +6,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
-use crate::client_task::{run_client_task, ConnectOutcome, Phase};
+use crate::client_task::{ConnectOutcome, Phase, run_client_task};
 use crate::report::{RunCounts, RunReport};
 use crate::scenario::Scenario;
 use crate::server_target;
@@ -76,12 +76,7 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
     }
 
     let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    RunReport::from_counts(
-        scenario.name.clone(),
-        scenario.clients,
-        counts,
-        duration_ms,
-    )
+    RunReport::from_counts(scenario.name.clone(), scenario.clients, counts, duration_ms)
 }
 
 pub async fn run_local(
