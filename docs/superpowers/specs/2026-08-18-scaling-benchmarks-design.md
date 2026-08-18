@@ -149,6 +149,21 @@ Recommended starting values are scenario data, not production constants:
 
 The design deliberately starts below pathological packet rates. The first objective is to establish a trustworthy mixed-load baseline and instrumentation before increasing pressure.
 
+## Measurement Windows
+
+A benchmark run has distinct phases, and the report must not blend their resource profiles into one ambiguous average:
+
+1. **startup**: child process creation and server bind;
+2. **ramp**: clients establish sessions over `ramp_up_seconds`;
+3. **steady/measured window**: all required sessions are established and the configured mixed workload runs for `hold_seconds`;
+4. **shutdown**: clean client disconnect and child termination.
+
+Resource sampling may run continuously from child readiness through shutdown, but the primary CPU/RSS/throughput/RTT numbers for `steady-*` scenarios are computed from samples that fall inside the steady/measured window.
+
+Handshake/ramp pressure should be preserved separately when available, for example as `ramp.server_cpu_peak_pct` or an equivalent phase summary. A short connection spike must not inflate the steady-state average, and a low steady-state average must not hide an expensive ramp.
+
+Transport counter deltas used for workload analysis are likewise anchored to snapshots taken at the start and end of the steady/measured window. Connection-establishment counters remain available as full-run correctness data.
+
 ## Benchmark Frame Format
 
 Synthetic benchmark payloads use a small internal frame format owned by `ardosia-loadgen`, not by `ardosia-network` and not by `ardosia-protocol`.
@@ -288,7 +303,7 @@ Vendor-specific field names remain private. If a vendor field cannot be aggregat
 
 Counters are not useful if a run reports only lifetime totals from process startup. Benchmark reporting therefore records:
 
-1. a start snapshot near the beginning of the measured window;
+1. a start snapshot at the beginning of the steady/measured window;
 2. periodic snapshots during the measured window;
 3. an end snapshot;
 4. counter deltas between start and end;
@@ -310,12 +325,12 @@ Linux is the first-class implementation target. `/proc`-based accounting is acce
 
 Record at least:
 
-- average CPU utilization;
-- peak CPU utilization;
-- average RSS bytes;
-- peak RSS bytes.
+- average CPU utilization during the steady window;
+- peak CPU utilization during the steady window;
+- average RSS bytes during the steady window;
+- peak RSS bytes during the steady window.
 
-Optional process fields may include virtual memory and thread count if they are reliable and inexpensive.
+Optional ramp-phase summaries and process fields such as virtual memory or thread count may be included when reliable and inexpensive.
 
 ### Load Generator Process
 
@@ -327,11 +342,11 @@ This separation is mandatory: a localhost run must not report one combined proce
 
 Record at least:
 
-- average host CPU utilization;
-- peak host CPU utilization;
-- average used memory;
-- peak used memory;
-- minimum available memory;
+- average host CPU utilization during the steady window;
+- peak host CPU utilization during the steady window;
+- average used memory during the steady window;
+- peak used memory during the steady window;
+- minimum available memory during the steady window;
 - total physical memory;
 - logical CPU count.
 
@@ -384,13 +399,13 @@ Include:
 
 - handshake/disconnect/protocol correctness;
 - workload tx/rx frames and bytes by kind/direction;
-- workload rates over the measured window;
-- RTT summary;
-- Ardosia/RakNet transport telemetry deltas and peaks;
-- server-process resources;
-- loadgen-process resources;
-- host resources;
-- total run duration and measured-window duration;
+- workload rates over the steady/measured window;
+- RTT summary for the steady/measured window;
+- Ardosia/RakNet transport telemetry deltas and peaks for the steady/measured window;
+- server-process steady-window resources and optional ramp summary;
+- loadgen-process steady-window resources and optional ramp summary;
+- host steady-window resources and optional ramp summary;
+- total run duration, ramp duration, and measured-window duration;
 - pass/fail and explicit failure reasons.
 
 The terminal summary should surface the most useful values without requiring manual JSON inspection: establishment count, correctness failures, throughput, RTT p50/p95/p99, retransmits, queue peak, server CPU/RSS peak, loadgen CPU/RSS peak, and host memory pressure.
@@ -488,7 +503,7 @@ Integration tests should use small client counts and short durations. They must 
 
 ### Manual Load Tests
 
-Run and archive/inspect explicit scenario reports for:
+Run and inspect explicit scenario reports for:
 
 1. `steady-300`;
 2. `steady-500`;
@@ -535,7 +550,7 @@ Phase 2 should be implemented in this order:
 4. Add Linux resource sampler with unit-testable parsers and unavailable fallbacks.
 5. Split local benchmark server into a child process with ready/stop/final-report control.
 6. Add per-client and per-server mixed workload generation.
-7. Assemble periodic sampling, deltas, peaks, and final JSON/terminal report.
+7. Assemble periodic sampling, phase-aware deltas/peaks, and final JSON/terminal report.
 8. Add and pass a small-process integration workload.
 9. Add `steady-300` and run the strict 300-client mixed-load gate.
 10. Only after `steady-300` is trusted, add/run `steady-500` and `ceiling-1000` characterization.
@@ -547,6 +562,7 @@ Phase 2 is successful when:
 
 - `local` runs server and clients as separate OS processes while preserving one-command ergonomics;
 - server, loadgen, and host CPU/RAM are measured separately on Linux;
+- steady-state resource summaries are not contaminated by ramp/startup samples, while ramp pressure can be reported separately;
 - resource/performance metrics are record-only, with explicit unavailable values where necessary;
 - mixed bidirectional unreliable, reliable-ordered, fragmented, and RTT traffic is scenario-driven and deterministic;
 - RTT p50/p95/p99/max are produced using bounded memory;
