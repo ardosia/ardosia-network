@@ -1,4 +1,4 @@
-use ardosia_loadgen::frame::{BenchmarkFrame, FrameKind, FRAME_MAGIC, FRAME_VERSION};
+use ardosia_loadgen::frame::{BenchmarkFrame, FRAME_MAGIC, FRAME_VERSION, FrameKind};
 use bytes::Bytes;
 
 fn roundtrip(kind: FrameKind, payload: Bytes) {
