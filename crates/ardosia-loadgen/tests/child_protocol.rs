@@ -59,7 +59,7 @@ fn child_commands_and_events_roundtrip_json() {
     ));
 
     let stopped = ChildEvent::Stopped {
-        report: ServerRunReport::default(),
+        report: Box::new(ServerRunReport::default()),
     };
     assert!(matches!(
         serde_json::from_str::<ChildEvent>(&serde_json::to_string(&stopped).unwrap()).unwrap(),
