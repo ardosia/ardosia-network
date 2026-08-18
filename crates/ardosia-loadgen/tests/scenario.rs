@@ -71,7 +71,10 @@ payload_bytes = 32
         TrafficKind::FragmentedReliableOrdered
     );
     assert_eq!(scenario.traffic[2].direction, Direction::ServerToClient);
-    assert_eq!(scenario.rtt.as_ref().unwrap().probes_per_second_per_client, 2.0);
+    assert_eq!(
+        scenario.rtt.as_ref().unwrap().probes_per_second_per_client,
+        2.0
+    );
 }
 
 #[test]
@@ -82,8 +85,8 @@ fn rejects_zero_clients() {
 
 #[test]
 fn rejects_zero_hold_seconds() {
-    let error = Scenario::from_str(&BASE.replace("hold_seconds = 60", "hold_seconds = 0"))
-        .unwrap_err();
+    let error =
+        Scenario::from_str(&BASE.replace("hold_seconds = 60", "hold_seconds = 0")).unwrap_err();
     assert!(error.to_string().contains("hold_seconds"));
 }
 
@@ -116,9 +119,8 @@ fn rejects_invalid_traffic_rates_and_payloads() {
 #[test]
 fn rejects_invalid_rtt_rates_and_payloads() {
     for rate in ["0.0", "-1.0", "inf", "nan"] {
-        let input = format!(
-            "{BASE}\n[rtt]\nprobes_per_second_per_client = {rate}\npayload_bytes = 32\n"
-        );
+        let input =
+            format!("{BASE}\n[rtt]\nprobes_per_second_per_client = {rate}\npayload_bytes = 32\n");
         let error = Scenario::from_str(&input).unwrap_err();
         assert!(error.to_string().contains("probes_per_second_per_client"));
     }
