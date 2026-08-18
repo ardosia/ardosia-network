@@ -52,7 +52,7 @@ impl ResourceSampler {
     pub fn sample(&mut self) -> ResourcePoint {
         #[cfg(target_os = "linux")]
         {
-            return self.sample_linux();
+            self.sample_linux()
         }
 
         #[cfg(not(target_os = "linux"))]
