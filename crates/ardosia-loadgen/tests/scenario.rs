@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use ardosia_loadgen::scenario::Scenario;
 
 #[test]
