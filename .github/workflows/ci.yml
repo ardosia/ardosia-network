@@ -18,3 +18,5 @@ jobs:
           components: rustfmt, clippy
       - name: Test workspace
         run: cargo test --workspace
+      - name: Test vendored RakNet library
+        run: cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
