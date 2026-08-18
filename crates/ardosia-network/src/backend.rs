@@ -123,9 +123,7 @@ async fn handle_server_event(
     metrics: &Arc<MetricsState>,
 ) -> bool {
     match event {
-        RaknetServerEvent::PeerConnected {
-            peer_id, addr, ..
-        } => {
+        RaknetServerEvent::PeerConnected { peer_id, addr, .. } => {
             let (inbound_tx, inbound_rx) = mpsc::channel(PER_CONNECTION_INBOUND_CAPACITY);
             let (close_tx, close_rx) = watch::channel(CloseState::Open);
 
@@ -138,13 +136,8 @@ async fn handle_server_event(
             );
             metrics.connected();
 
-            let connection = Connection::new(
-                peer_id,
-                addr,
-                inbound_rx,
-                close_rx,
-                command_tx.clone(),
-            );
+            let connection =
+                Connection::new(peer_id, addr, inbound_rx, close_rx, command_tx.clone());
 
             match accept_tx.try_send(Ok(connection)) {
                 Ok(()) => false,
