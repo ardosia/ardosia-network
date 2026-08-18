@@ -27,7 +27,7 @@ pub enum ChildCommand {
 pub enum ChildEvent {
     Ready { pid: u32 },
     MeasurementStarted,
-    Snapshot { metrics: TransportMetricsReport },
+    Snapshot { metrics: Box<TransportMetricsReport> },
     Stopped { report: Box<ServerRunReport> },
     Error { message: String },
 }
@@ -151,7 +151,7 @@ where
                 write_event(
                     &mut writer,
                     &ChildEvent::Snapshot {
-                        metrics: metrics.transport.into(),
+                        metrics: Box::new(metrics.transport.into()),
                     },
                 )
                 .await?;
