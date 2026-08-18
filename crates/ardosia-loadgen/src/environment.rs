@@ -13,8 +13,8 @@ pub fn collect_environment() -> EnvironmentReport {
 
     #[cfg(target_os = "linux")]
     {
-        report.total_memory_bytes = crate::resource::linux::read_meminfo()
-            .map(|memory| memory.total_bytes);
+        report.total_memory_bytes =
+            crate::resource::linux::read_meminfo().map(|memory| memory.total_bytes);
     }
 
     report
