@@ -81,15 +81,18 @@ impl ResourceSampler {
             self.previous_process_ticks,
             process_ticks,
         ) {
-            (Some(previous_host), Some(current_host), Some(previous_process), Some(current_process)) => {
-                process_cpu_pct(
-                    previous_host,
-                    current_host,
-                    previous_process,
-                    current_process,
-                    self.logical_cpus,
-                )
-            }
+            (
+                Some(previous_host),
+                Some(current_host),
+                Some(previous_process),
+                Some(current_process),
+            ) => process_cpu_pct(
+                previous_host,
+                current_host,
+                previous_process,
+                current_process,
+                self.logical_cpus,
+            ),
             _ => None,
         };
 
