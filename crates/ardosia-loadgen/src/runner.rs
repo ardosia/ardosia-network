@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, interval, sleep_until};
+use tokio::time::{Instant, interval, sleep, sleep_until};
 
 use crate::child_protocol::{ChildCommand, ChildEvent, ServerRunReport};
 use crate::client_task::{ClientTaskResult, ConnectOutcome, Phase, run_client_task};
@@ -19,6 +19,7 @@ use crate::report::{
     TransportWindowReport,
 };
 use crate::resource::{ResourceAccumulator, ResourcePoint, ResourceSampler};
+use crate::sampling::steady_interval;
 use crate::scenario::Scenario;
 use crate::server_target;
 use crate::workload::WorkloadCounts;
@@ -64,6 +65,9 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
     let measured_duration_ms;
 
     if successful {
+        // Reset the CPU delta baseline at the ramp/steady boundary. The first
+        // recorded steady sample is intentionally delayed by one full period.
+        let _ = loadgen_sampler.sample();
         let measured_started = Instant::now();
         let deadline = measured_started + Duration::from_secs(scenario.hold_seconds);
         cohort.measure(deadline);
@@ -162,6 +166,24 @@ pub async fn run_local(
             },
         ));
     }
+
+    if let Err(error) = wait_for_transport_ready(
+        &mut child,
+        scenario.clients,
+        Duration::from_secs(scenario.connect_timeout_seconds.max(2)),
+    )
+    .await
+    {
+        cohort.abort();
+        let _ = cohort.finish().await;
+        child.abort().await;
+        return Err(error);
+    }
+
+    // Prime both process samplers after the transport telemetry has converged,
+    // so the first recorded steady CPU delta contains steady work only.
+    let _ = server_sampler.sample();
+    let _ = loadgen_sampler.sample();
 
     if let Err(error) = child.begin_measurement().await {
         cohort.abort();
@@ -409,13 +431,46 @@ async fn collect_handshakes(
     }
 }
 
+async fn wait_for_transport_ready(
+    child: &mut ChildTarget,
+    expected_sessions: usize,
+    timeout_duration: Duration,
+) -> Result<(), RunnerError> {
+    let expected = u64::try_from(expected_sessions).unwrap_or(u64::MAX);
+    let deadline = Instant::now() + timeout_duration;
+    let mut last = TransportMetricsReport::default();
+
+    loop {
+        last = child.snapshot().await?;
+        if last.sessions_current == expected
+            && last.sessions_started_total == expected
+            && last.sessions_closed_total == 0
+            && last.timed_out_sessions == 0
+        {
+            return Ok(());
+        }
+
+        if Instant::now() >= deadline {
+            return Err(RunnerError::ChildProtocol(format!(
+                "transport metrics did not converge before measurement: expected {expected} sessions, current={}, started={}, closed={}, timed_out={}",
+                last.sessions_current,
+                last.sessions_started_total,
+                last.sessions_closed_total,
+                last.timed_out_sessions,
+            )));
+        }
+
+        sleep(Duration::from_millis(25)).await;
+    }
+}
+
 async fn sample_steady_without_server(
     deadline: Instant,
     loadgen_sampler: &mut ResourceSampler,
     steady_loadgen: &mut ResourceAccumulator,
     steady_host: &mut ResourceAccumulator,
 ) {
-    let mut ticker = interval(Duration::from_secs(1));
+    let mut ticker = steady_interval(Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = sleep_until(deadline) => break,
@@ -439,7 +494,7 @@ async fn sample_steady_local(
     steady_host: &mut ResourceAccumulator,
     transport_samples: &mut Vec<TransportMetricsReport>,
 ) -> Result<(), RunnerError> {
-    let mut ticker = interval(Duration::from_secs(1));
+    let mut ticker = steady_interval(Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = sleep_until(deadline) => return Ok(()),
