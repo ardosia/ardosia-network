@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use crate::latency::LatencySummary;
+use crate::workload::WorkloadCounts;
+
 pub const VENDOR_REVISION: &str = "3edfb4170e6cb5aeed992b09b50176fb7e5b6079";
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -16,6 +19,9 @@ pub struct RunReport {
     pub scenario: String,
     pub requested_clients: usize,
     pub counts: RunCounts,
+    pub send_errors: usize,
+    pub workload: WorkloadCounts,
+    pub latency: LatencySummary,
     pub duration_ms: u64,
     pub vendor_revision: String,
     pub passed: bool,
@@ -33,6 +39,9 @@ impl RunReport {
             scenario,
             requested_clients,
             counts,
+            send_errors: 0,
+            workload: WorkloadCounts::default(),
+            latency: LatencySummary::default(),
             duration_ms,
             vendor_revision: VENDOR_REVISION.into(),
             passed: false,
@@ -45,6 +54,19 @@ impl RunReport {
     pub fn add_protocol_errors(&mut self, additional: usize) {
         self.counts.protocol_errors = self.counts.protocol_errors.saturating_add(additional);
         self.recompute_gate();
+    }
+
+    pub fn add_send_errors(&mut self, additional: usize) {
+        self.send_errors = self.send_errors.saturating_add(additional);
+        self.recompute_gate();
+    }
+
+    pub fn add_workload(&mut self, workload: WorkloadCounts) {
+        self.workload.merge(workload);
+    }
+
+    pub fn set_latency(&mut self, latency: LatencySummary) {
+        self.latency = latency;
     }
 
     fn recompute_gate(&mut self) {
@@ -68,6 +90,8 @@ impl RunReport {
                 "{} protocol/decode error(s)",
                 self.counts.protocol_errors
             ))
+        } else if self.send_errors != 0 {
+            Some(format!("{} benchmark send error(s)", self.send_errors))
         } else if self.counts.clean_disconnects != self.requested_clients {
             Some(format!(
                 "only {}/{} clients completed the hold window cleanly",
