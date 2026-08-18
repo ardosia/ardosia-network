@@ -33,10 +33,12 @@ impl NetworkConfig {
     pub(crate) fn to_vendor_transport_config(&self) -> Result<TransportConfig, NetworkError> {
         self.validate()?;
 
-        let mut vendor = TransportConfig::default();
-        vendor.bind_addr = self.bind_addr;
-        vendor.supported_protocols = self.raknet_protocols.clone();
-        vendor.max_sessions = self.max_connections;
+        let vendor = TransportConfig {
+            bind_addr: self.bind_addr,
+            supported_protocols: self.raknet_protocols.clone(),
+            max_sessions: self.max_connections,
+            ..TransportConfig::default()
+        };
         vendor
             .validate()
             .map_err(|error| NetworkError::InvalidConfig {
