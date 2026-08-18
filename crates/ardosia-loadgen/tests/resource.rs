@@ -8,8 +8,8 @@ use ardosia_loadgen::resource::linux::{
 #[cfg(target_os = "linux")]
 #[test]
 fn parses_proc_fixture_values() {
-    let cpu = parse_host_cpu_ticks("cpu  100 20 30 400 50 6 7 8 9 10\ncpu0 1 2 3 4 5 6 7 8\n")
-        .unwrap();
+    let cpu =
+        parse_host_cpu_ticks("cpu  100 20 30 400 50 6 7 8 9 10\ncpu0 1 2 3 4 5 6 7 8\n").unwrap();
     assert_eq!(cpu.total, 621);
     assert_eq!(cpu.idle, 450);
 
