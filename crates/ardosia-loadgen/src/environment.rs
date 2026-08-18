@@ -3,13 +3,15 @@ use std::process::Command;
 use crate::report::EnvironmentReport;
 
 pub fn collect_environment() -> EnvironmentReport {
-    let mut report = EnvironmentReport::default();
-    report.git_commit = std::env::var("GITHUB_SHA")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .or_else(|| command_line("git", &["rev-parse", "HEAD"]));
-    report.rust_version = command_line("rustc", &["--version"]);
-    report.kernel = command_line("uname", &["-sr"]);
+    let mut report = EnvironmentReport {
+        git_commit: std::env::var("GITHUB_SHA")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .or_else(|| command_line("git", &["rev-parse", "HEAD"])),
+        rust_version: command_line("rustc", &["--version"]),
+        kernel: command_line("uname", &["-sr"]),
+        ..EnvironmentReport::default()
+    };
 
     #[cfg(target_os = "linux")]
     {
