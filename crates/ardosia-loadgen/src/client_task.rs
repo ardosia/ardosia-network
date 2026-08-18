@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use raknet_rust::client::{RaknetClient, RaknetClientConfig, RaknetClientEvent};
 use tokio::sync::{mpsc, watch};
-use tokio::time::{sleep, sleep_until, timeout, Instant};
+use tokio::time::{Instant, sleep, sleep_until, timeout};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Phase {
@@ -107,10 +107,7 @@ pub(crate) async fn run_client_task(
     }
 }
 
-fn handle_client_event(
-    event: Option<RaknetClientEvent>,
-    result: &mut ClientTaskResult,
-) -> bool {
+fn handle_client_event(event: Option<RaknetClientEvent>, result: &mut ClientTaskResult) -> bool {
     match event {
         Some(RaknetClientEvent::DecodeError { .. }) => {
             result.protocol_errors += 1;
