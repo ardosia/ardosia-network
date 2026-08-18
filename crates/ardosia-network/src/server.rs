@@ -4,7 +4,7 @@ use raknet_rust::server::RaknetServer;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::backend::{run_backend, BackendCommand, COMMAND_QUEUE_CAPACITY};
+use crate::backend::{BackendCommand, COMMAND_QUEUE_CAPACITY, run_backend};
 use crate::connection::Connection;
 use crate::{MetricsState, NetworkConfig, NetworkError, NetworkMetrics};
 
@@ -73,9 +73,11 @@ impl NetworkServer {
             .await
             .map_err(|_| NetworkError::BackendStopped)?;
 
-        backend.await.map_err(|error| NetworkError::BackendFailure {
-            message: format!("backend task join failed: {error}"),
-        })?;
+        backend
+            .await
+            .map_err(|error| NetworkError::BackendFailure {
+                message: format!("backend task join failed: {error}"),
+            })?;
 
         shutdown_result
     }
