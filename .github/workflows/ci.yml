@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: ["feat/raknet-baseline"]
   workflow_dispatch:
 
 permissions:
