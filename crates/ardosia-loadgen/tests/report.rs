@@ -111,7 +111,11 @@ fn report(scenario: Scenario, counts: RunCounts, workload: WorkloadCounts) -> Ru
 
 #[test]
 fn clean_connect_style_report_still_passes_without_workload() {
-    let report = report(connect_scenario(), clean_counts(), WorkloadCounts::default());
+    let report = report(
+        connect_scenario(),
+        clean_counts(),
+        WorkloadCounts::default(),
+    );
     assert!(report.results.passed);
     assert!(report.results.failure_reasons.is_empty());
 }
@@ -213,5 +217,9 @@ fn high_resource_latency_and_retransmit_values_are_record_only() {
     });
 
     let report = RunReport::assemble(EnvironmentReport::default(), steady_scenario(), input);
-    assert!(report.results.passed, "{:?}", report.results.failure_reasons);
+    assert!(
+        report.results.passed,
+        "{:?}",
+        report.results.failure_reasons
+    );
 }
