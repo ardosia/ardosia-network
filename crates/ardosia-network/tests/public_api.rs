@@ -3,9 +3,7 @@ use std::time::Duration;
 
 use ardosia_network::{NetworkConfig, NetworkError, NetworkServer, Reliability};
 use bytes::Bytes;
-use raknet_rust::client::{
-    ClientSendOptions, RaknetClient, RaknetClientConfig, RaknetClientEvent,
-};
+use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig, RaknetClientEvent};
 use raknet_rust::low_level::protocol::Reliability as VendorReliability;
 use tokio::time::timeout;
 
