@@ -57,10 +57,7 @@ pub(crate) async fn spawn_local_target(
     let (measure_tx, measure_rx) = watch::channel(false);
     let (stop_tx, stop_rx) = watch::channel(false);
     let task = tokio::spawn(run_benchmark_server_loop(
-        server,
-        scenario,
-        measure_rx,
-        stop_rx,
+        server, scenario, measure_rx, stop_rx,
     ));
     Ok(ServerTargetHandle {
         measure_tx,
@@ -239,7 +236,10 @@ async fn handle_server_frame(
 
     match frame.kind {
         FrameKind::ClientHello => {
-            if client_id.replace(frame.client_id).is_some_and(|old| old != frame.client_id) {
+            if client_id
+                .replace(frame.client_id)
+                .is_some_and(|old| old != frame.client_id)
+            {
                 result.protocol_errors += 1;
                 return;
             }
