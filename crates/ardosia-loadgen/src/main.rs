@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use ardosia_loadgen::report::RunReport;
 use ardosia_loadgen::runner::{run_clients, run_local, serve_until};
