@@ -38,11 +38,11 @@ impl MetricsState {
 
     pub(crate) fn disconnected(&self) {
         self.disconnected_total.fetch_add(1, Ordering::Relaxed);
-        let _ = self.connected_current.fetch_update(
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-            |value| Some(value.saturating_sub(1)),
-        );
+        let _ =
+            self.connected_current
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                    Some(value.saturating_sub(1))
+                });
     }
 
     pub(crate) fn protocol_error(&self) {
