@@ -1,0 +1,56 @@
+name: Vendor pinned RakNet
+
+on:
+  push:
+    branches: ["feat/raknet-baseline"]
+    paths: [".github/workflows/vendor-raknet.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/raknet-baseline
+          fetch-depth: 0
+      - name: Export pinned upstream snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_sha=3edfb4170e6cb5aeed992b09b50176fb7e5b6079
+          rm -rf /tmp/raknet-src /tmp/raknet-export vendor/raknet-rust
+          git clone --filter=blob:none --no-checkout https://github.com/mcbe-rs/raknet-rust.git /tmp/raknet-src
+          git -C /tmp/raknet-src fetch --depth=1 origin "$upstream_sha"
+          git -C /tmp/raknet-src checkout --detach "$upstream_sha"
+          mkdir -p /tmp/raknet-export vendor/raknet-rust
+          git -C /tmp/raknet-src archive "$upstream_sha" | tar -x -C /tmp/raknet-export
+          git -C /tmp/raknet-src archive "$upstream_sha" | tar -x -C vendor/raknet-rust
+          diff -ru /tmp/raknet-export vendor/raknet-rust
+          test -f vendor/raknet-rust/LICENSE
+          cat > vendor/raknet-rust/UPSTREAM.md <<'EOF'
+          # Upstream provenance
+
+          Repository: https://github.com/mcbe-rs/raknet-rust
+          Commit: 3edfb4170e6cb5aeed992b09b50176fb7e5b6079
+          Crate version: 0.2.0
+          License: Apache-2.0
+          Vendored for: ardosia-network
+
+          ## Ardosia-local behavioral changes
+
+          None. The initial snapshot is source-identical to the pinned upstream commit.
+          EOF
+      - name: Commit vendored snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/raknet-rust
+          git diff --cached --exit-code && exit 0
+          git commit -m "build: vendor pinned raknet-rust baseline"
+          git push origin HEAD:feat/raknet-baseline
