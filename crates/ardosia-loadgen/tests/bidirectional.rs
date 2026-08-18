@@ -72,29 +72,33 @@ payload_bytes = 32
         String::from_utf8_lossy(&output.stderr)
     );
     let report: RunReport = serde_json::from_slice(&output.stdout).unwrap();
+    let correctness = report.results.correctness;
+    let workload = report.results.workload.counts;
 
-    assert_eq!(report.counts.successful_handshakes, 1);
-    assert_eq!(report.counts.unexpected_disconnects, 0);
-    assert_eq!(report.counts.protocol_errors, 0);
-    assert_eq!(report.send_errors, 0);
-    assert_eq!(report.counts.clean_disconnects, 1);
+    assert_eq!(correctness.successful_handshakes, 1);
+    assert_eq!(correctness.unexpected_disconnects, 0);
+    assert_eq!(correctness.protocol_errors, 0);
+    assert_eq!(correctness.send_errors, 0);
+    assert_eq!(correctness.clean_disconnects, 1);
 
-    assert!(report.workload.unreliable.tx_frames > 0);
-    assert!(report.workload.unreliable.rx_frames > 0);
-    assert!(report.workload.reliable_ordered.tx_frames > 0);
-    assert!(report.workload.reliable_ordered.rx_frames > 0);
-    assert!(report.workload.fragmented_reliable_ordered.tx_frames > 0);
-    assert!(report.workload.fragmented_reliable_ordered.rx_frames > 0);
+    assert!(workload.unreliable.tx_frames > 0);
+    assert!(workload.unreliable.rx_frames > 0);
+    assert!(workload.reliable_ordered.tx_frames > 0);
+    assert!(workload.reliable_ordered.rx_frames > 0);
+    assert!(workload.fragmented_reliable_ordered.tx_frames > 0);
+    assert!(workload.fragmented_reliable_ordered.rx_frames > 0);
     assert_eq!(
-        report
-            .workload
-            .fragmented_reliable_ordered
-            .max_rx_payload_bytes,
+        workload.fragmented_reliable_ordered.max_rx_payload_bytes,
         4096
     );
-    assert!(report.workload.rtt_requests.tx_frames > 0);
-    assert!(report.workload.rtt_responses.rx_frames > 0);
-    assert!(report.latency.samples > 0);
+    assert!(workload.rtt_requests.tx_frames > 0);
+    assert!(workload.rtt_responses.rx_frames > 0);
+    assert!(report.results.latency.samples > 0);
+    assert!(
+        report.results.passed,
+        "{:?}",
+        report.results.failure_reasons
+    );
 }
 
 #[test]
