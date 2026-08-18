@@ -57,8 +57,8 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
     )
     .await;
 
-    let successful = cohort.successful_handshakes == scenario.clients
-        && cohort.failed_handshakes == 0;
+    let successful =
+        cohort.successful_handshakes == scenario.clients && cohort.failed_handshakes == 0;
     let mut steady_loadgen = ResourceAccumulator::default();
     let mut steady_host = ResourceAccumulator::default();
     let measured_duration_ms;
@@ -126,8 +126,8 @@ pub async fn run_local(
     )
     .await;
 
-    let successful = cohort.successful_handshakes == scenario.clients
-        && cohort.failed_handshakes == 0;
+    let successful =
+        cohort.successful_handshakes == scenario.clients && cohort.failed_handshakes == 0;
 
     if !successful {
         cohort.abort();

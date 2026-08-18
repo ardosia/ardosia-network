@@ -134,10 +134,7 @@ fn print_summary(report: &RunReport) {
     print_process("server", results.resources.steady_server.as_ref());
     print_process("loadgen", results.resources.steady_loadgen.as_ref());
     print_host(results.resources.steady_host.as_ref());
-    eprintln!(
-        "result: {}",
-        if results.passed { "PASS" } else { "FAIL" }
-    );
+    eprintln!("result: {}", if results.passed { "PASS" } else { "FAIL" });
     for reason in &results.failure_reasons {
         eprintln!("failure: {reason}");
     }

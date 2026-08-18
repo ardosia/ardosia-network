@@ -403,7 +403,10 @@ fn gate_failures(
         ));
     }
     if correctness.send_errors != 0 {
-        failures.push(format!("{} benchmark send error(s)", correctness.send_errors));
+        failures.push(format!(
+            "{} benchmark send error(s)",
+            correctness.send_errors
+        ));
     }
     if correctness.clean_disconnects != scenario.clients {
         failures.push(format!(
