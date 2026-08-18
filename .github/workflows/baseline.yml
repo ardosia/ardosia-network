@@ -1,0 +1,17 @@
+name: RakNet Baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connect-300:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Run 300-client protocol-8 baseline
+        run: cargo run -p ardosia-loadgen -- local scenarios/connect-300.toml
