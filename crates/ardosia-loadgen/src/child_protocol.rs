@@ -7,6 +7,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 
 use crate::scenario::Scenario;
 use crate::server_target;
+use crate::workload::WorkloadCounts;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -31,6 +32,9 @@ pub enum ChildEvent {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ServerRunReport {
     pub metrics: ServerMetricsReport,
+    pub workload: WorkloadCounts,
+    pub benchmark_protocol_errors: usize,
+    pub send_errors: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -99,13 +103,9 @@ where
                 let address: SocketAddr = bind_addr
                     .parse()
                     .map_err(|_| ChildProtocolError::InvalidBindAddress(bind_addr.clone()))?;
-                let handle = server_target::spawn_local_target(
-                    address,
-                    scenario.protocol_version,
-                    scenario.clients.saturating_add(64).max(1),
-                )
-                .await
-                .map_err(|error| ChildProtocolError::Server(error.to_string()))?;
+                let handle = server_target::spawn_local_target(address, scenario)
+                    .await
+                    .map_err(|error| ChildProtocolError::Server(error.to_string()))?;
                 server = Some(handle);
                 write_event(
                     &mut writer,
@@ -116,7 +116,7 @@ where
                 .await?;
             }
             ChildCommand::BeginMeasurement => {
-                if server.is_none() {
+                let Some(handle) = server.as_ref() else {
                     write_event(
                         &mut writer,
                         &ChildEvent::Error {
@@ -125,11 +125,12 @@ where
                     )
                     .await?;
                     continue;
-                }
+                };
+                handle.begin_measurement();
                 write_event(&mut writer, &ChildEvent::MeasurementStarted).await?;
             }
             ChildCommand::Stop => {
-                let Some((stop_tx, server_task)) = server.take() else {
+                let Some(handle) = server.take() else {
                     write_event(
                         &mut writer,
                         &ChildEvent::Error {
@@ -140,16 +141,18 @@ where
                     continue;
                 };
 
-                let _ = stop_tx.send(true);
-                let metrics = server_task
+                let result = handle
+                    .stop()
                     .await
-                    .map_err(|error| ChildProtocolError::Server(error.to_string()))?
                     .map_err(|error| ChildProtocolError::Server(error.to_string()))?;
                 write_event(
                     &mut writer,
                     &ChildEvent::Stopped {
                         report: ServerRunReport {
-                            metrics: metrics.into(),
+                            metrics: result.metrics.into(),
+                            workload: result.workload,
+                            benchmark_protocol_errors: result.protocol_errors,
+                            send_errors: result.send_errors,
                         },
                     },
                 )
@@ -159,9 +162,8 @@ where
         }
     }
 
-    if let Some((stop_tx, server_task)) = server {
-        let _ = stop_tx.send(true);
-        let _ = server_task.await;
+    if let Some(handle) = server {
+        let _ = handle.stop().await;
     }
 
     Ok(())
