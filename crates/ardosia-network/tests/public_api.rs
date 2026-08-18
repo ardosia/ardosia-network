@@ -13,9 +13,10 @@ fn allocate_loopback_addr() -> SocketAddr {
 }
 
 fn protocol8_client_config() -> RaknetClientConfig {
-    let mut config = RaknetClientConfig::default();
-    config.protocol_version = 8;
-    config
+    RaknetClientConfig {
+        protocol_version: 8,
+        ..RaknetClientConfig::default()
+    }
 }
 
 #[tokio::test]
