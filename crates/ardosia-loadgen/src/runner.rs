@@ -11,9 +11,11 @@ use tokio::time::Instant;
 
 use crate::child_protocol::{ChildCommand, ChildEvent, ServerRunReport};
 use crate::client_task::{ConnectOutcome, Phase, run_client_task};
+use crate::latency::LatencyHistogram;
 use crate::report::{RunCounts, RunReport};
 use crate::scenario::Scenario;
 use crate::server_target;
+use crate::workload::WorkloadCounts;
 
 #[derive(Debug, Error)]
 pub enum RunnerError {
@@ -42,8 +44,8 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
     for index in 0..scenario.clients {
         tasks.push(tokio::spawn(run_client_task(
             target,
-            scenario.protocol_version,
-            Duration::from_secs(scenario.connect_timeout_seconds),
+            u64::try_from(index).unwrap_or(u64::MAX),
+            scenario.clone(),
             stagger_delay(index, scenario.clients, scenario.ramp_up_seconds),
             phase_rx.clone(),
             outcome_tx.clone(),
@@ -66,7 +68,7 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
 
     if successful_handshakes == scenario.clients && failed_handshakes == 0 {
         let deadline = Instant::now() + Duration::from_secs(scenario.hold_seconds);
-        let _ = phase_tx.send(Phase::Hold { deadline });
+        let _ = phase_tx.send(Phase::Measure { deadline });
     } else {
         let _ = phase_tx.send(Phase::Abort);
     }
@@ -76,6 +78,9 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
         failed_handshakes,
         ..RunCounts::default()
     };
+    let mut send_errors = 0usize;
+    let mut workload = WorkloadCounts::default();
+    let mut latency = LatencyHistogram::default();
 
     for task in tasks {
         match task.await {
@@ -83,13 +88,20 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
                 counts.unexpected_disconnects += result.unexpected_disconnects;
                 counts.protocol_errors += result.protocol_errors;
                 counts.clean_disconnects += result.clean_disconnects;
+                send_errors = send_errors.saturating_add(result.send_errors);
+                workload.merge(result.workload);
+                latency.merge(&result.latency);
             }
             Err(_) => counts.unexpected_disconnects += 1,
         }
     }
 
     let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    RunReport::from_counts(scenario.name.clone(), scenario.clients, counts, duration_ms)
+    let mut report = RunReport::from_counts(scenario.name.clone(), scenario.clients, counts, duration_ms);
+    report.add_send_errors(send_errors);
+    report.add_workload(workload);
+    report.set_latency(latency.summary());
+    report
 }
 
 pub async fn run_local(
@@ -117,7 +129,12 @@ pub async fn run_local(
         return Err(error);
     }
 
-    report.add_protocol_errors(server_report.metrics.protocol_errors_total as usize);
+    report.add_protocol_errors(
+        (server_report.metrics.protocol_errors_total as usize)
+            .saturating_add(server_report.benchmark_protocol_errors),
+    );
+    report.add_send_errors(server_report.send_errors);
+    report.add_workload(server_report.workload);
     Ok(report)
 }
 
