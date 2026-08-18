@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use ardosia_loadgen::child_protocol::run_stdio_child;
 use ardosia_loadgen::report::RunReport;
 use ardosia_loadgen::runner::{run_clients, run_local, serve_until};
 use ardosia_loadgen::scenario::Scenario;
@@ -36,6 +37,8 @@ enum Command {
         #[arg(long, default_value_t = 1024)]
         max_connections: usize,
     },
+    #[command(hide = true)]
+    ServeChild,
 }
 
 #[tokio::main]
@@ -67,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let metrics = serve_until(bind, protocol, max_connections, stop_rx).await?;
             eprintln!("server stopped: {metrics:?}");
         }
+        Command::ServeChild => run_stdio_child().await?,
     }
 
     Ok(())
