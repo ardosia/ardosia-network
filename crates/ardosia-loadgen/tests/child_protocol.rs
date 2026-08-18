@@ -85,7 +85,10 @@ async fn child_session_obeys_ready_measure_stop_order_and_reaps_server_task() {
         },
     )
     .await;
-    assert!(matches!(read_event(&mut parent_lines).await, ChildEvent::Ready { .. }));
+    assert!(matches!(
+        read_event(&mut parent_lines).await,
+        ChildEvent::Ready { .. }
+    ));
 
     send_command(&mut parent_write, &ChildCommand::BeginMeasurement).await;
     assert!(matches!(
