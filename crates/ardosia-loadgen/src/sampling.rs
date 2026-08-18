@@ -1,3 +1,11 @@
+use std::time::Duration;
+
+use tokio::time::{Instant, Interval, interval_at};
+
+pub(crate) fn steady_interval(period: Duration) -> Interval {
+    interval_at(Instant::now() + period, period)
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
