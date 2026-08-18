@@ -169,7 +169,9 @@ async fn run_measurement(
 
         let next_traffic = next_lane_deadline(&lanes);
         let next_rtt = rtt_lane.as_ref().map(|lane| lane.next_due);
-        let next_due = min_deadline(next_traffic, next_rtt).unwrap_or(deadline).min(deadline);
+        let next_due = min_deadline(next_traffic, next_rtt)
+            .unwrap_or(deadline)
+            .min(deadline);
 
         tokio::select! {
             _ = sleep_until(deadline) => {
@@ -303,7 +305,10 @@ fn handle_client_event(
                     result
                         .workload
                         .record_rx(FrameKind::EchoResponse, frame.payload.len());
-                    match pending.as_mut().and_then(|pending| pending.complete(frame.probe_id)) {
+                    match pending
+                        .as_mut()
+                        .and_then(|pending| pending.complete(frame.probe_id))
+                    {
                         Some(elapsed) => result.latency.record(elapsed),
                         None => result.protocol_errors += 1,
                     }
