@@ -25,10 +25,7 @@ pub fn parse_host_cpu_ticks(input: &str) -> Option<CpuTicks> {
         *value = fields.next()?.parse().ok()?;
     }
 
-    let total = values
-        .iter()
-        .copied()
-        .fold(0u64, u64::saturating_add);
+    let total = values.iter().copied().fold(0u64, u64::saturating_add);
     let idle = values[3].saturating_add(values[4]);
     Some(CpuTicks { total, idle })
 }
