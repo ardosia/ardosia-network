@@ -438,14 +438,13 @@ async fn wait_for_transport_ready(
 ) -> Result<(), RunnerError> {
     let expected = u64::try_from(expected_sessions).unwrap_or(u64::MAX);
     let deadline = Instant::now() + timeout_duration;
-    let mut last = TransportMetricsReport::default();
 
     loop {
-        last = child.snapshot().await?;
-        if last.sessions_current == expected
-            && last.sessions_started_total == expected
-            && last.sessions_closed_total == 0
-            && last.timed_out_sessions == 0
+        let snapshot = child.snapshot().await?;
+        if snapshot.sessions_current == expected
+            && snapshot.sessions_started_total == expected
+            && snapshot.sessions_closed_total == 0
+            && snapshot.timed_out_sessions == 0
         {
             return Ok(());
         }
@@ -453,10 +452,10 @@ async fn wait_for_transport_ready(
         if Instant::now() >= deadline {
             return Err(RunnerError::ChildProtocol(format!(
                 "transport metrics did not converge before measurement: expected {expected} sessions, current={}, started={}, closed={}, timed_out={}",
-                last.sessions_current,
-                last.sessions_started_total,
-                last.sessions_closed_total,
-                last.timed_out_sessions,
+                snapshot.sessions_current,
+                snapshot.sessions_started_total,
+                snapshot.sessions_closed_total,
+                snapshot.timed_out_sessions,
             )));
         }
 
