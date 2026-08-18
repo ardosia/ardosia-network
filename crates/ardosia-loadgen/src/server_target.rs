@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use ardosia_network::{Connection, NetworkConfig, NetworkMetrics, NetworkServer};
 use tokio::sync::watch;
-use tokio::time::{sleep, Instant};
+use tokio::time::{Instant, sleep};
 
 use crate::runner::RunnerError;
 
@@ -11,8 +11,13 @@ pub(crate) async fn spawn_local_target(
     bind_addr: SocketAddr,
     protocol_version: u8,
     max_connections: usize,
-) -> Result<(watch::Sender<bool>, tokio::task::JoinHandle<Result<NetworkMetrics, RunnerError>>), RunnerError>
-{
+) -> Result<
+    (
+        watch::Sender<bool>,
+        tokio::task::JoinHandle<Result<NetworkMetrics, RunnerError>>,
+    ),
+    RunnerError,
+> {
     let server = NetworkServer::bind(NetworkConfig {
         bind_addr,
         raknet_protocols: vec![protocol_version],
