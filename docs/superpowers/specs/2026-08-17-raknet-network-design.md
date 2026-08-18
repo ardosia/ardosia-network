@@ -1,7 +1,7 @@
 # Ardosia Network and RakNet Benchmark Design
 
 Date: 2026-08-17
-Status: Approved design, pending implementation-plan review
+Status: Design approved in chat; written spec pending user review
 
 ## Context
 
@@ -75,7 +75,6 @@ Neither repository should depend on the other at the library layer. A future ser
 ardosia-network/
 ├── Cargo.toml
 ├── README.md
-├── LICENSE
 ├── crates/
 │   ├── ardosia-network/
 │   │   └── src/
@@ -109,6 +108,8 @@ ardosia-network/
 ```
 
 `vendor/raknet-rust/UPSTREAM.md` will record the source repository, exact commit, crate version, vendoring date, and a short list of Ardosia-local modifications once any exist.
+
+This design does not choose a license for Ardosia's own repository. The vendored upstream Apache-2.0 license is retained regardless of any later project-level licensing decision.
 
 ## Dependency Direction
 
