@@ -4,3 +4,4 @@ mod server_target;
 pub mod report;
 pub mod runner;
 pub mod scenario;
+pub mod workload;
