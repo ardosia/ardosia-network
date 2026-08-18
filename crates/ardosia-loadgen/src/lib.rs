@@ -2,6 +2,7 @@ mod client_task;
 mod server_target;
 
 pub mod child_protocol;
+pub mod environment;
 pub mod frame;
 pub mod latency;
 pub mod report;
