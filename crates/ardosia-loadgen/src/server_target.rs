@@ -4,7 +4,7 @@ use std::time::Duration;
 use ardosia_network::{
     Connection, NetworkConfig, NetworkError, NetworkMetrics, NetworkServer, Reliability,
 };
-use tokio::sync::watch;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{Instant, sleep, sleep_until};
 
@@ -26,6 +26,7 @@ pub(crate) struct ServerTargetResult {
 
 pub(crate) struct ServerTargetHandle {
     measure_tx: watch::Sender<bool>,
+    snapshot_tx: mpsc::Sender<oneshot::Sender<NetworkMetrics>>,
     stop_tx: watch::Sender<bool>,
     task: JoinHandle<Result<ServerTargetResult, RunnerError>>,
 }
@@ -33,6 +34,17 @@ pub(crate) struct ServerTargetHandle {
 impl ServerTargetHandle {
     pub(crate) fn begin_measurement(&self) {
         let _ = self.measure_tx.send(true);
+    }
+
+    pub(crate) async fn snapshot(&self) -> Result<NetworkMetrics, RunnerError> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.snapshot_tx
+            .send(response_tx)
+            .await
+            .map_err(|_| RunnerError::Task("server snapshot channel closed".into()))?;
+        response_rx
+            .await
+            .map_err(|_| RunnerError::Task("server snapshot response dropped".into()))
     }
 
     pub(crate) async fn stop(self) -> Result<ServerTargetResult, RunnerError> {
@@ -55,12 +67,18 @@ pub(crate) async fn spawn_local_target(
     .await?;
 
     let (measure_tx, measure_rx) = watch::channel(false);
+    let (snapshot_tx, snapshot_rx) = mpsc::channel(8);
     let (stop_tx, stop_rx) = watch::channel(false);
     let task = tokio::spawn(run_benchmark_server_loop(
-        server, scenario, measure_rx, stop_rx,
+        server,
+        scenario,
+        measure_rx,
+        snapshot_rx,
+        stop_rx,
     ));
     Ok(ServerTargetHandle {
         measure_tx,
+        snapshot_tx,
         stop_tx,
         task,
     })
@@ -86,6 +104,7 @@ async fn run_benchmark_server_loop(
     mut server: NetworkServer,
     scenario: Scenario,
     measure_rx: watch::Receiver<bool>,
+    mut snapshot_rx: mpsc::Receiver<oneshot::Sender<NetworkMetrics>>,
     mut stop_rx: watch::Receiver<bool>,
 ) -> Result<ServerTargetResult, RunnerError> {
     let mut tasks = JoinSet::new();
@@ -100,6 +119,11 @@ async fn run_benchmark_server_loop(
             changed = stop_rx.changed() => {
                 if changed.is_err() || *stop_rx.borrow() {
                     break;
+                }
+            }
+            snapshot = snapshot_rx.recv() => {
+                if let Some(response) = snapshot {
+                    let _ = response.send(server.metrics());
                 }
             }
             accepted = server.accept() => {
