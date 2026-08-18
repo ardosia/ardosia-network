@@ -22,6 +22,7 @@ fn every_frame_kind_roundtrips() {
         FrameKind::FragmentedReliableOrderedData,
         FrameKind::EchoRequest,
         FrameKind::EchoResponse,
+        FrameKind::ClientHello,
     ] {
         roundtrip(kind, Bytes::from_static(b"payload"));
     }
