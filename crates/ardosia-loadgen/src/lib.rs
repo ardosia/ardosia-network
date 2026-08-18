@@ -1,4 +1,5 @@
 mod client_task;
+mod sampling;
 mod server_target;
 
 pub mod child_protocol;
