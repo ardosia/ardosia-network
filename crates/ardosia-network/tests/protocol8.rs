@@ -76,8 +76,10 @@ async fn protocol8_vendor_client_reaches_ardosia_accept() {
     let addr = allocate_loopback_addr();
     let mut server = NetworkServer::bind(network_config(addr)).await.unwrap();
 
-    let mut client_config = RaknetClientConfig::default();
-    client_config.protocol_version = 8;
+    let client_config = RaknetClientConfig {
+        protocol_version: 8,
+        ..RaknetClientConfig::default()
+    };
     let mut client = RaknetClient::connect_with_config(addr, client_config)
         .await
         .unwrap();
