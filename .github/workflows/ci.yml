@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -20,5 +21,17 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test workspace
         run: cargo test --workspace
+      - name: Smoke local child process
+        run: |
+          cat > /tmp/ardosia-task5.toml <<'EOF'
+          name = "task5-child-smoke"
+          clients = 1
+          protocol_version = 8
+          ramp_up_seconds = 0
+          hold_seconds = 1
+          connect_timeout_seconds = 2
+          seed = 1
+          EOF
+          cargo run -p ardosia-loadgen -- local /tmp/ardosia-task5.toml --bind 127.0.0.1:19143
       - name: Test vendored RakNet library
         run: cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
