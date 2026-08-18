@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 const MAX_BUCKET_MS: usize = 10_000;
 const OVERFLOW_BUCKET: usize = MAX_BUCKET_MS + 1;
 const BUCKET_COUNT: usize = OVERFLOW_BUCKET + 1;
@@ -21,7 +23,7 @@ impl Default for LatencyHistogram {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 pub struct LatencySummary {
     pub samples: u64,
     pub overflow_samples: u64,
