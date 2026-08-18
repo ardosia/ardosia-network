@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: ["feat/raknet-baseline"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: rustfmt, clippy
+      - name: Test workspace
+        run: cargo test --workspace
