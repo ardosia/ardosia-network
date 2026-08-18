@@ -97,7 +97,8 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
     }
 
     let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    let mut report = RunReport::from_counts(scenario.name.clone(), scenario.clients, counts, duration_ms);
+    let mut report =
+        RunReport::from_counts(scenario.name.clone(), scenario.clients, counts, duration_ms);
     report.add_send_errors(send_errors);
     report.add_workload(workload);
     report.set_latency(latency.summary());
