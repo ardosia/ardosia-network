@@ -37,6 +37,10 @@ impl ServerTargetHandle {
         let _ = self.measure_tx.send(true);
     }
 
+    pub(crate) fn end_measurement(&self) {
+        let _ = self.measure_tx.send(false);
+    }
+
     pub(crate) async fn snapshot(&self) -> Result<NetworkMetrics, RunnerError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.snapshot_tx
@@ -176,6 +180,9 @@ async fn run_connection_task(
             return result;
         }
 
+        if !*measure_rx.borrow() && !lanes.is_empty() {
+            lanes.clear();
+        }
         if *measure_rx.borrow() && client_id.is_some() && lanes.is_empty() {
             lanes = build_traffic_lanes(
                 &scenario,
