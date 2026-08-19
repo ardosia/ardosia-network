@@ -52,10 +52,22 @@ fn child_commands_and_events_roundtrip_json() {
         ChildCommand::BeginMeasurement
     ));
 
+    let end = ChildCommand::EndMeasurement;
+    assert!(matches!(
+        serde_json::from_str::<ChildCommand>(&serde_json::to_string(&end).unwrap()).unwrap(),
+        ChildCommand::EndMeasurement
+    ));
+
     let ready = ChildEvent::Ready { pid: 1234 };
     assert!(matches!(
         serde_json::from_str::<ChildEvent>(&serde_json::to_string(&ready).unwrap()).unwrap(),
         ChildEvent::Ready { pid: 1234 }
+    ));
+
+    let ended = ChildEvent::MeasurementEnded;
+    assert!(matches!(
+        serde_json::from_str::<ChildEvent>(&serde_json::to_string(&ended).unwrap()).unwrap(),
+        ChildEvent::MeasurementEnded
     ));
 
     let stopped = ChildEvent::Stopped {
@@ -68,7 +80,7 @@ fn child_commands_and_events_roundtrip_json() {
 }
 
 #[tokio::test]
-async fn child_session_obeys_ready_measure_stop_order_and_reaps_server_task() {
+async fn child_session_obeys_ready_measure_end_stop_order_and_reaps_server_task() {
     let bind_addr = allocate_loopback_addr();
     let (parent_io, child_io) = tokio::io::duplex(16 * 1024);
     let (parent_read, mut parent_write) = tokio::io::split(parent_io);
@@ -94,6 +106,12 @@ async fn child_session_obeys_ready_measure_stop_order_and_reaps_server_task() {
     assert!(matches!(
         read_event(&mut parent_lines).await,
         ChildEvent::MeasurementStarted
+    ));
+
+    send_command(&mut parent_write, &ChildCommand::EndMeasurement).await;
+    assert!(matches!(
+        read_event(&mut parent_lines).await,
+        ChildEvent::MeasurementEnded
     ));
 
     send_command(&mut parent_write, &ChildCommand::Stop).await;
