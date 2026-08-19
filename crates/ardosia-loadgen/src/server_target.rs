@@ -67,7 +67,7 @@ pub(crate) async fn spawn_local_target(
     let server = NetworkServer::bind(NetworkConfig {
         bind_addr,
         raknet_protocols: vec![scenario.protocol_version],
-        max_connections: scenario.clients.saturating_add(64).max(1),
+        max_connections: scenario.benchmark_max_connections(),
     })
     .await?;
 
