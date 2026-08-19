@@ -1,8 +1,10 @@
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ardosia_network::{NetworkError, NetworkMetrics};
+use serde::Serialize;
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -14,6 +16,10 @@ use crate::child_protocol::{ChildCommand, ChildEvent, ServerRunReport};
 use crate::client_task::{ClientTaskResult, ConnectOutcome, Phase, run_client_task};
 use crate::environment::collect_environment;
 use crate::latency::LatencyHistogram;
+use crate::profiling::{
+    PerfCaptureSummary, PerfSession, ProfileArtifacts, ProfileConfig, ProfileError, ProfileMetadata,
+    ProfileRun, ProfileTools, resolve_run_dir,
+};
 use crate::report::{
     ResourceWindowsReport, RunCounts, RunReport, RunReportInput, TransportMetricsReport,
     TransportWindowReport,
@@ -30,6 +36,9 @@ pub enum RunnerError {
     Network(#[from] NetworkError),
 
     #[error(transparent)]
+    Profile(#[from] ProfileError),
+
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 
     #[error("benchmark task failed: {0}")]
@@ -40,6 +49,12 @@ pub enum RunnerError {
 
     #[error("child benchmark process exited unexpectedly: {0}")]
     ChildExited(String),
+}
+
+struct ProfileRequest {
+    config: ProfileConfig,
+    tools: ProfileTools,
+    artifacts: ProfileArtifacts,
 }
 
 pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
@@ -65,8 +80,6 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
     let measured_duration_ms;
 
     if successful {
-        // Reset the CPU delta baseline at the ramp/steady boundary. The first
-        // recorded steady sample is intentionally delayed by one full period.
         let _ = loadgen_sampler.sample();
         let measured_started = Instant::now();
         let deadline = measured_started + Duration::from_secs(scenario.hold_seconds);
@@ -113,6 +126,144 @@ pub async fn run_local(
     bind_addr: SocketAddr,
     scenario: &Scenario,
 ) -> Result<RunReport, RunnerError> {
+    let (report, _) = run_local_internal(bind_addr, scenario, None).await?;
+    Ok(report)
+}
+
+pub async fn run_profile(
+    bind_addr: SocketAddr,
+    scenario_path: &Path,
+    scenario: &Scenario,
+    output_root: Option<&Path>,
+) -> Result<ProfileRun, RunnerError> {
+    let root = output_root
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("profiles").join(&scenario.name));
+    let epoch_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| RunnerError::Task(error.to_string()))?
+        .as_millis();
+    let run_id = format!("{epoch_ms}-{}", std::process::id());
+    let output_dir = resolve_run_dir(&root, &run_id);
+    std::fs::create_dir_all(&output_dir)?;
+    let artifacts = ProfileArtifacts::in_dir(&output_dir);
+    let config = ProfileConfig::new(scenario_path.to_path_buf(), root);
+
+    let tools = match ProfileTools::detect() {
+        Ok(tools) => tools,
+        Err(error) => {
+            write_early_profile_failure(scenario, &config, &artifacts, None, &error.to_string());
+            return Err(error.into());
+        }
+    };
+    let validated_perf_version = match tools.validate().await {
+        Ok(version) => version,
+        Err(error) => {
+            write_early_profile_failure(scenario, &config, &artifacts, None, &error.to_string());
+            return Err(error.into());
+        }
+    };
+
+    let request = ProfileRequest {
+        config: config.clone(),
+        tools: tools.clone(),
+        artifacts: artifacts.clone(),
+    };
+
+    let (report, capture) = match run_local_internal(bind_addr, scenario, Some(request)).await {
+        Ok(result) => result,
+        Err(error) => {
+            write_early_profile_failure(
+                scenario,
+                &config,
+                &artifacts,
+                validated_perf_version,
+                &error.to_string(),
+            );
+            return Err(error);
+        }
+    };
+
+    write_pretty_json(&artifacts.run_json, &report)?;
+
+    let requested_capture_ms = scenario.hold_seconds.saturating_mul(1_000);
+    let Some(capture) = capture else {
+        let metadata = ProfileMetadata::from_failure(
+            &scenario.name,
+            scenario_path.to_path_buf(),
+            report.environment.git_commit.clone(),
+            report.environment.vendor_revision.clone(),
+            "profiling".into(),
+            0,
+            validated_perf_version,
+            config.frequency_hz,
+            config.call_graph,
+            requested_capture_ms,
+            0,
+            artifacts.clone(),
+            "benchmark did not reach the profiling capture window",
+        );
+        write_pretty_json(&artifacts.profile_json, &metadata)?;
+        if report.results.passed {
+            return Err(RunnerError::Task(
+                "profile run passed benchmark correctness without producing a capture".into(),
+            ));
+        }
+        return Ok(ProfileRun {
+            report,
+            metadata,
+            output_dir,
+        });
+    };
+
+    if let Err(error) = tools.post_process(&artifacts).await {
+        let metadata = ProfileMetadata::from_failure(
+            &scenario.name,
+            scenario_path.to_path_buf(),
+            report.environment.git_commit.clone(),
+            report.environment.vendor_revision.clone(),
+            "profiling".into(),
+            capture.server_pid,
+            capture.perf_version.clone(),
+            config.frequency_hz,
+            config.call_graph,
+            requested_capture_ms,
+            capture.observed_capture_ms,
+            artifacts.clone(),
+            error.to_string(),
+        );
+        let _ = write_pretty_json(&artifacts.profile_json, &metadata);
+        return Err(error.into());
+    }
+
+    let metadata = ProfileMetadata::from_capture(
+        &scenario.name,
+        scenario_path.to_path_buf(),
+        report.environment.git_commit.clone(),
+        report.environment.vendor_revision.clone(),
+        "profiling".into(),
+        capture.server_pid,
+        capture.perf_version,
+        config.frequency_hz,
+        config.call_graph,
+        requested_capture_ms,
+        capture.observed_capture_ms,
+        artifacts.clone(),
+    );
+    write_pretty_json(&artifacts.profile_json, &metadata)?;
+
+    Ok(ProfileRun {
+        report,
+        metadata,
+        output_dir,
+    })
+}
+
+async fn run_local_internal(
+    bind_addr: SocketAddr,
+    scenario: &Scenario,
+    profile: Option<ProfileRequest>,
+) -> Result<(RunReport, Option<PerfCaptureSummary>), RunnerError> {
     let total_started = Instant::now();
     let mut child = ChildTarget::spawn(bind_addr, scenario).await?;
     let mut cohort = ClientCohort::spawn(bind_addr, scenario);
@@ -149,7 +300,7 @@ pub async fn run_local(
 
         let mut counts = aggregate.counts;
         add_server_errors(&mut counts, &server_report);
-        return Ok(RunReport::assemble(
+        let report = RunReport::assemble(
             collect_environment(),
             scenario.clone(),
             RunReportInput {
@@ -166,7 +317,8 @@ pub async fn run_local(
                 total_duration_ms: millis(total_started.elapsed()),
                 measured_duration_ms: 0,
             },
-        ));
+        );
+        return Ok((report, None));
     }
 
     if let Err(error) = wait_for_transport_ready(
@@ -182,12 +334,42 @@ pub async fn run_local(
         return Err(error);
     }
 
-    // Prime both process samplers after the transport telemetry has converged,
-    // so the first recorded steady CPU delta contains steady work only.
     let _ = server_sampler.sample();
     let _ = loadgen_sampler.sample();
 
+    let mut perf = if let Some(request) = profile.as_ref() {
+        match PerfSession::attach_disabled(
+            child.pid,
+            &request.config,
+            &request.tools,
+            &request.artifacts,
+        )
+        .await
+        {
+            Ok(session) => Some(session),
+            Err(error) => {
+                cohort.abort();
+                let _ = cohort.finish().await;
+                child.abort().await;
+                return Err(error.into());
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(session) = perf.as_mut()
+        && let Err(error) = session.enable().await
+    {
+        abort_perf(&mut perf).await;
+        cohort.abort();
+        let _ = cohort.finish().await;
+        child.abort().await;
+        return Err(error.into());
+    }
+
     if let Err(error) = child.begin_measurement().await {
+        abort_perf(&mut perf).await;
         cohort.abort();
         let _ = cohort.finish().await;
         child.abort().await;
@@ -197,6 +379,7 @@ pub async fn run_local(
     let transport_start = match child.snapshot().await {
         Ok(snapshot) => snapshot,
         Err(error) => {
+            abort_perf(&mut perf).await;
             cohort.abort();
             let _ = cohort.finish().await;
             child.abort().await;
@@ -225,6 +408,7 @@ pub async fn run_local(
     )
     .await
     {
+        abort_perf(&mut perf).await;
         cohort.abort();
         let _ = cohort.finish().await;
         child.abort().await;
@@ -232,8 +416,20 @@ pub async fn run_local(
     }
 
     let measured_duration_ms = millis(measured_started.elapsed());
-    cohort.drain();
+    let capture = match perf.take() {
+        Some(session) => match session.disable_and_stop().await {
+            Ok(summary) => Some(summary),
+            Err(error) => {
+                cohort.abort();
+                let _ = cohort.finish().await;
+                child.abort().await;
+                return Err(error.into());
+            }
+        },
+        None => None,
+    };
 
+    cohort.drain();
     if let Err(error) = child.end_measurement().await {
         cohort.abort();
         let _ = cohort.finish().await;
@@ -268,7 +464,7 @@ pub async fn run_local(
     let mut workload = aggregate.workload;
     workload.merge(server_report.workload);
 
-    Ok(RunReport::assemble(
+    let report = RunReport::assemble(
         collect_environment(),
         scenario.clone(),
         RunReportInput {
@@ -291,7 +487,8 @@ pub async fn run_local(
             total_duration_ms: millis(total_started.elapsed()),
             measured_duration_ms,
         },
-    ))
+    );
+    Ok((report, capture))
 }
 
 pub async fn serve_until(
@@ -531,6 +728,12 @@ async fn sample_steady_local(
     }
 }
 
+async fn abort_perf(perf: &mut Option<PerfSession>) {
+    if let Some(mut session) = perf.take() {
+        session.abort().await;
+    }
+}
+
 fn push_process(accumulator: &mut ResourceAccumulator, point: ResourcePoint) {
     accumulator.push(ResourcePoint {
         process_cpu_pct: point.process_cpu_pct,
@@ -554,6 +757,39 @@ fn add_server_errors(counts: &mut RunCounts, report: &ServerRunReport) {
         .saturating_add(report.metrics.protocol_errors_total as usize)
         .saturating_add(report.benchmark_protocol_errors);
     counts.send_errors = counts.send_errors.saturating_add(report.send_errors);
+}
+
+fn write_pretty_json<T: Serialize>(path: &Path, value: &T) -> Result<(), RunnerError> {
+    let json =
+        serde_json::to_vec_pretty(value).map_err(|error| RunnerError::Task(error.to_string()))?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+fn write_early_profile_failure(
+    scenario: &Scenario,
+    config: &ProfileConfig,
+    artifacts: &ProfileArtifacts,
+    perf_version: Option<String>,
+    failure: &str,
+) {
+    let environment = collect_environment();
+    let metadata = ProfileMetadata::from_failure(
+        &scenario.name,
+        config.scenario_path.clone(),
+        environment.git_commit,
+        environment.vendor_revision,
+        "profiling".into(),
+        0,
+        perf_version,
+        config.frequency_hz,
+        config.call_graph,
+        scenario.hold_seconds.saturating_mul(1_000),
+        0,
+        artifacts.clone(),
+        failure,
+    );
+    let _ = write_pretty_json(&artifacts.profile_json, &metadata);
 }
 
 struct ChildTarget {
