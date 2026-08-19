@@ -96,10 +96,14 @@ impl ProfileTools {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| command_spawn_error("inferno-collapse-perf", error))?;
-        let mut collapse_stdin = collapse.stdin.take().ok_or_else(|| ProfileError::CommandFailed {
-            tool: "inferno-collapse-perf".into(),
-            detail: "stdin was not piped".into(),
-        })?;
+        let mut collapse_stdin =
+            collapse
+                .stdin
+                .take()
+                .ok_or_else(|| ProfileError::CommandFailed {
+                    tool: "inferno-collapse-perf".into(),
+                    detail: "stdin was not piped".into(),
+                })?;
         collapse_stdin.write_all(&script.stdout).await?;
         drop(collapse_stdin);
         let collapsed = collapse
@@ -137,10 +141,7 @@ impl ProfileTools {
             .await
             .map_err(|error| command_spawn_error("inferno-flamegraph", error))?;
         if !rendered.status.success() {
-            return Err(command_status_error(
-                "inferno-flamegraph",
-                &rendered.stderr,
-            ));
+            return Err(command_status_error("inferno-flamegraph", &rendered.stderr));
         }
         std::fs::write(&artifacts.flamegraph_svg, &rendered.stdout)?;
         require_non_empty(&artifacts.flamegraph_svg)?;
