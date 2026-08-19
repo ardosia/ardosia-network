@@ -85,6 +85,20 @@ async fn injected_profile_tools_validate_and_preserve_perf_version() {
 }
 
 #[tokio::test]
+async fn inferno_tools_are_validated_without_requiring_version_flag() {
+    let dir = temp_test_dir("profile-tools-inferno-help");
+    let perf = fake_tool(&dir, "perf", 0);
+    let collapse = fake_help_only_tool(&dir, "inferno-collapse-perf");
+    let flamegraph = fake_help_only_tool(&dir, "inferno-flamegraph");
+    let mkfifo = fake_tool(&dir, "mkfifo", 0);
+    let tools = ProfileTools::from_paths(perf, collapse, flamegraph, mkfifo);
+
+    let perf_version = tools.validate().await.unwrap();
+    assert_eq!(perf_version.as_deref(), Some("fake-tool 1.0"));
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn failing_perf_prerequisite_is_classified_as_missing_tool() {
     let dir = temp_test_dir("profile-tools-bad-perf");
     let perf = fake_tool(&dir, "perf", 7);
@@ -117,8 +131,23 @@ fn fake_tool(dir: &Path, name: &str, exit_code: i32) -> PathBuf {
         format!("#!/bin/sh\necho fake-tool 1.0\nexit {exit_code}\n"),
     )
     .unwrap();
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
+    make_executable(&path);
     path
+}
+
+fn fake_help_only_tool(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    fs::write(
+        &path,
+        "#!/bin/sh\nif [ \"$1\" = \"--help\" ]; then\n  echo fake-help\n  exit 0\nfi\necho unsupported >&2\nexit 2\n",
+    )
+    .unwrap();
+    make_executable(&path);
+    path
+}
+
+fn make_executable(path: &Path) {
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
 }
