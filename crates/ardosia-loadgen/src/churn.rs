@@ -12,6 +12,45 @@ pub enum ChurnError {
     InitialPopulationTooLarge,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectIntent {
+    PlannedChurn,
+    FinalShutdown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectOutcome {
+    Clean,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DisconnectCounts {
+    pub completed_planned_disconnects: usize,
+    pub clean_disconnects: usize,
+    pub unexpected_disconnects: usize,
+}
+
+pub fn classify_disconnect(
+    intent: DisconnectIntent,
+    outcome: DisconnectOutcome,
+) -> DisconnectCounts {
+    match (intent, outcome) {
+        (DisconnectIntent::PlannedChurn, DisconnectOutcome::Clean) => DisconnectCounts {
+            completed_planned_disconnects: 1,
+            ..DisconnectCounts::default()
+        },
+        (DisconnectIntent::FinalShutdown, DisconnectOutcome::Clean) => DisconnectCounts {
+            clean_disconnects: 1,
+            ..DisconnectCounts::default()
+        },
+        (_, DisconnectOutcome::Failed) => DisconnectCounts {
+            unexpected_disconnects: 1,
+            ..DisconnectCounts::default()
+        },
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ChurnSchedule {
     replacements_per_second: f64,
