@@ -17,6 +17,8 @@ pub struct Scenario {
     pub traffic: Vec<TrafficSpec>,
     #[serde(default)]
     pub rtt: Option<RttConfig>,
+    #[serde(default)]
+    pub churn: Option<ChurnConfig>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,6 +49,11 @@ pub struct TrafficSpec {
 pub struct RttConfig {
     pub probes_per_second_per_client: f64,
     pub payload_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChurnConfig {
+    pub replacements_per_second: f64,
 }
 
 #[derive(Debug, Error)]
@@ -113,7 +120,36 @@ impl Scenario {
             }
         }
 
+        if let Some(churn) = &self.churn {
+            if !churn.replacements_per_second.is_finite()
+                || churn.replacements_per_second <= 0.0
+            {
+                return invalid(
+                    "replacements_per_second",
+                    "must be finite and greater than 0",
+                );
+            }
+        }
+
         Ok(())
+    }
+
+    pub fn churn_admission_headroom(&self) -> usize {
+        self.churn.as_ref().map_or(0, |churn| {
+            (churn.replacements_per_second * self.connect_timeout_seconds as f64)
+                .ceil()
+                .min(usize::MAX as f64) as usize
+        })
+    }
+
+    pub fn benchmark_max_connections(&self) -> usize {
+        if self.churn.is_some() {
+            self.clients
+                .saturating_add(self.churn_admission_headroom())
+                .max(1)
+        } else {
+            self.clients.saturating_add(64).max(1)
+        }
     }
 }
 
