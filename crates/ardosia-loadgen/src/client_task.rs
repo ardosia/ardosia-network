@@ -7,6 +7,9 @@ use raknet_rust::low_level::protocol::Reliability as VendorReliability;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep, sleep_until, timeout};
 
+use crate::churn::{
+    DisconnectCounts, DisconnectIntent, DisconnectOutcome, classify_disconnect,
+};
 use crate::frame::{BenchmarkFrame, FrameKind};
 use crate::latency::LatencyHistogram;
 use crate::scenario::{Scenario, TrafficKind};
@@ -32,8 +35,22 @@ pub(crate) enum ConnectOutcome {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenerationDirective {
+    Continue,
+    PlannedDisconnect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenerationConnectOutcome {
+    Ready { client_id: u64 },
+    Failed { client_id: u64, timed_out: bool },
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct ClientTaskResult {
+    pub(crate) client_id: u64,
+    pub(crate) completed_planned_disconnects: usize,
     pub(crate) unexpected_disconnects: usize,
     pub(crate) protocol_errors: usize,
     pub(crate) clean_disconnects: usize,
@@ -47,9 +64,59 @@ pub(crate) async fn run_client_task(
     client_id: u64,
     scenario: Scenario,
     stagger: Duration,
-    mut phase_rx: watch::Receiver<Phase>,
+    phase_rx: watch::Receiver<Phase>,
     outcome_tx: mpsc::Sender<ConnectOutcome>,
 ) -> ClientTaskResult {
+    let (directive_tx, directive_rx) = watch::channel(GenerationDirective::Continue);
+    let result = run_client_generation_inner(
+        target,
+        client_id,
+        scenario,
+        stagger,
+        phase_rx,
+        directive_rx,
+        OutcomeSink::Steady(outcome_tx),
+    )
+    .await;
+    drop(directive_tx);
+    result
+}
+
+pub(crate) async fn run_client_generation(
+    target: SocketAddr,
+    client_id: u64,
+    scenario: Scenario,
+    stagger: Duration,
+    phase_rx: watch::Receiver<Phase>,
+    directive_rx: watch::Receiver<GenerationDirective>,
+    outcome_tx: mpsc::Sender<GenerationConnectOutcome>,
+) -> ClientTaskResult {
+    run_client_generation_inner(
+        target,
+        client_id,
+        scenario,
+        stagger,
+        phase_rx,
+        directive_rx,
+        OutcomeSink::Generation(outcome_tx),
+    )
+    .await
+}
+
+async fn run_client_generation_inner(
+    target: SocketAddr,
+    client_id: u64,
+    scenario: Scenario,
+    stagger: Duration,
+    mut phase_rx: watch::Receiver<Phase>,
+    mut directive_rx: watch::Receiver<GenerationDirective>,
+    outcome_tx: OutcomeSink,
+) -> ClientTaskResult {
+    let mut result = ClientTaskResult {
+        client_id,
+        ..ClientTaskResult::default()
+    };
+
     if !stagger.is_zero() {
         sleep(stagger).await;
     }
@@ -67,41 +134,82 @@ pub(crate) async fn run_client_task(
 
     let mut client = match connect {
         Ok(Ok(client)) => client,
-        Ok(Err(_)) | Err(_) => {
-            let _ = outcome_tx.send(ConnectOutcome::Failed).await;
-            return ClientTaskResult::default();
+        Ok(Err(_)) => {
+            outcome_tx.failed(client_id, false).await;
+            return result;
+        }
+        Err(_) => {
+            outcome_tx.failed(client_id, true).await;
+            return result;
         }
     };
 
-    let _ = outcome_tx.send(ConnectOutcome::Ready).await;
-    let mut result = ClientTaskResult::default();
+    outcome_tx.ready(client_id).await;
 
     loop {
+        if planned_disconnect_requested(&directive_rx) {
+            finish_client(
+                &mut client,
+                &mut result,
+                DisconnectIntent::PlannedChurn,
+                scenario.connect_timeout_seconds,
+            )
+            .await;
+            return result;
+        }
+
         let phase = *phase_rx.borrow();
         match phase {
             Phase::Abort | Phase::Shutdown => {
-                finish_client(&mut client, &mut result).await;
+                finish_client(
+                    &mut client,
+                    &mut result,
+                    DisconnectIntent::FinalShutdown,
+                    scenario.connect_timeout_seconds,
+                )
+                .await;
                 return result;
             }
             Phase::Drain => {
-                wait_post_measurement(&mut client, &mut phase_rx, &mut result).await;
+                wait_post_measurement(
+                    &mut client,
+                    &mut phase_rx,
+                    &mut directive_rx,
+                    &mut result,
+                    scenario.connect_timeout_seconds,
+                )
+                .await;
                 return result;
             }
             Phase::Ramp => {
                 tokio::select! {
+                    biased;
+                    changed = directive_rx.changed() => {
+                        if changed.is_err() {
+                            result.unexpected_disconnects =
+                                result.unexpected_disconnects.saturating_add(1);
+                            return result;
+                        }
+                        if planned_disconnect_requested(&directive_rx) {
+                            finish_client(
+                                &mut client,
+                                &mut result,
+                                DisconnectIntent::PlannedChurn,
+                                scenario.connect_timeout_seconds,
+                            )
+                            .await;
+                            return result;
+                        }
+                    }
                     changed = phase_rx.changed() => {
                         if changed.is_err() {
-                            result.unexpected_disconnects += 1;
+                            result.unexpected_disconnects =
+                                result.unexpected_disconnects.saturating_add(1);
                             return result;
                         }
                     }
                     event = client.next_event() => {
-                        if !handle_client_event(
-                            event,
-                            client_id,
-                            &mut result,
-                            None,
-                        ) {
+                        if !handle_client_event(event, client_id, &mut result, None) {
                             return result;
                         }
                     }
@@ -114,6 +222,7 @@ pub(crate) async fn run_client_task(
                     &scenario,
                     deadline,
                     &mut phase_rx,
+                    &mut directive_rx,
                     &mut result,
                 )
                 .await;
@@ -129,6 +238,7 @@ async fn run_measurement(
     scenario: &Scenario,
     deadline: Instant,
     phase_rx: &mut watch::Receiver<Phase>,
+    directive_rx: &mut watch::Receiver<GenerationDirective>,
     result: &mut ClientTaskResult,
 ) {
     if !scenario.traffic.is_empty() || scenario.rtt.is_some() {
@@ -143,7 +253,7 @@ async fn run_measurement(
             .await
             .is_err()
         {
-            result.send_errors += 1;
+            result.send_errors = result.send_errors.saturating_add(1);
         }
     }
 
@@ -168,8 +278,26 @@ async fn run_measurement(
     let mut pending = PendingProbes::with_capacity(PENDING_PROBE_CAPACITY);
 
     loop {
+        if planned_disconnect_requested(directive_rx) {
+            finish_client(
+                client,
+                result,
+                DisconnectIntent::PlannedChurn,
+                scenario.connect_timeout_seconds,
+            )
+            .await;
+            return;
+        }
+
         if Instant::now() >= deadline {
-            wait_post_measurement(client, phase_rx, result).await;
+            wait_post_measurement(
+                client,
+                phase_rx,
+                directive_rx,
+                result,
+                scenario.connect_timeout_seconds,
+            )
+            .await;
             return;
         }
 
@@ -180,23 +308,62 @@ async fn run_measurement(
             .min(deadline);
 
         tokio::select! {
+            biased;
+            changed = directive_rx.changed() => {
+                if changed.is_err() {
+                    result.unexpected_disconnects =
+                        result.unexpected_disconnects.saturating_add(1);
+                    return;
+                }
+                if planned_disconnect_requested(directive_rx) {
+                    finish_client(
+                        client,
+                        result,
+                        DisconnectIntent::PlannedChurn,
+                        scenario.connect_timeout_seconds,
+                    )
+                    .await;
+                    return;
+                }
+            }
             _ = sleep_until(deadline) => {
-                wait_post_measurement(client, phase_rx, result).await;
+                wait_post_measurement(
+                    client,
+                    phase_rx,
+                    directive_rx,
+                    result,
+                    scenario.connect_timeout_seconds,
+                )
+                .await;
                 return;
             }
             changed = phase_rx.changed() => {
                 if changed.is_err() {
-                    result.unexpected_disconnects += 1;
+                    result.unexpected_disconnects =
+                        result.unexpected_disconnects.saturating_add(1);
                     return;
                 }
                 let phase = *phase_rx.borrow();
                 match phase {
                     Phase::Abort | Phase::Shutdown => {
-                        finish_client(client, result).await;
+                        finish_client(
+                            client,
+                            result,
+                            DisconnectIntent::FinalShutdown,
+                            scenario.connect_timeout_seconds,
+                        )
+                        .await;
                         return;
                     }
                     Phase::Drain => {
-                        wait_post_measurement(client, phase_rx, result).await;
+                        wait_post_measurement(
+                            client,
+                            phase_rx,
+                            directive_rx,
+                            result,
+                            scenario.connect_timeout_seconds,
+                        )
+                        .await;
                         return;
                     }
                     Phase::Ramp | Phase::Measure { .. } => {}
@@ -224,22 +391,60 @@ async fn run_measurement(
 async fn wait_post_measurement(
     client: &mut RaknetClient,
     phase_rx: &mut watch::Receiver<Phase>,
+    directive_rx: &mut watch::Receiver<GenerationDirective>,
     result: &mut ClientTaskResult,
+    disconnect_timeout_seconds: u64,
 ) {
     loop {
+        if planned_disconnect_requested(directive_rx) {
+            finish_client(
+                client,
+                result,
+                DisconnectIntent::PlannedChurn,
+                disconnect_timeout_seconds,
+            )
+            .await;
+            return;
+        }
+
         let phase = *phase_rx.borrow();
         match phase {
             Phase::Abort | Phase::Shutdown => {
-                finish_client(client, result).await;
+                finish_client(
+                    client,
+                    result,
+                    DisconnectIntent::FinalShutdown,
+                    disconnect_timeout_seconds,
+                )
+                .await;
                 return;
             }
             Phase::Ramp | Phase::Measure { .. } | Phase::Drain => {}
         }
 
         tokio::select! {
+            biased;
+            changed = directive_rx.changed() => {
+                if changed.is_err() {
+                    result.unexpected_disconnects =
+                        result.unexpected_disconnects.saturating_add(1);
+                    return;
+                }
+                if planned_disconnect_requested(directive_rx) {
+                    finish_client(
+                        client,
+                        result,
+                        DisconnectIntent::PlannedChurn,
+                        disconnect_timeout_seconds,
+                    )
+                    .await;
+                    return;
+                }
+            }
             changed = phase_rx.changed() => {
                 if changed.is_err() {
-                    result.unexpected_disconnects += 1;
+                    result.unexpected_disconnects =
+                        result.unexpected_disconnects.saturating_add(1);
                     return;
                 }
             }
@@ -247,10 +452,11 @@ async fn wait_post_measurement(
                 match event {
                     Some(RaknetClientEvent::Packet { .. }) => {}
                     Some(RaknetClientEvent::DecodeError { .. }) => {
-                        result.protocol_errors += 1;
+                        result.protocol_errors = result.protocol_errors.saturating_add(1);
                     }
                     Some(RaknetClientEvent::Disconnected { .. }) | None => {
-                        result.unexpected_disconnects += 1;
+                        result.unexpected_disconnects =
+                            result.unexpected_disconnects.saturating_add(1);
                         return;
                     }
                     Some(_) => {}
@@ -285,7 +491,7 @@ async fn send_due_traffic(
 
         match send_client_frame(client, &frame, reliability).await {
             Ok(()) => result.workload.record_tx(kind, lane.payload_bytes),
-            Err(()) => result.send_errors += 1,
+            Err(()) => result.send_errors = result.send_errors.saturating_add(1),
         }
         lane.sequence = lane.sequence.wrapping_add(1);
         lane.advance(now);
@@ -304,7 +510,7 @@ async fn send_rtt_probe(
     if pending.insert(probe_id, StdInstant::now()).is_err() {
         result.workload.pending_probe_overflows =
             result.workload.pending_probe_overflows.saturating_add(1);
-        result.protocol_errors += 1;
+        result.protocol_errors = result.protocol_errors.saturating_add(1);
         return;
     }
 
@@ -323,7 +529,7 @@ async fn send_rtt_probe(
             .record_tx(FrameKind::EchoRequest, lane.payload_bytes),
         Err(()) => {
             let _ = pending.complete(probe_id);
-            result.send_errors += 1;
+            result.send_errors = result.send_errors.saturating_add(1);
         }
     }
 }
@@ -339,12 +545,12 @@ fn handle_client_event(
             let frame = match BenchmarkFrame::decode(&payload) {
                 Ok(frame) => frame,
                 Err(_) => {
-                    result.protocol_errors += 1;
+                    result.protocol_errors = result.protocol_errors.saturating_add(1);
                     return true;
                 }
             };
             if frame.client_id != client_id {
-                result.protocol_errors += 1;
+                result.protocol_errors = result.protocol_errors.saturating_add(1);
                 return true;
             }
 
@@ -363,21 +569,23 @@ fn handle_client_event(
                         .and_then(|pending| pending.complete(frame.probe_id))
                     {
                         Some(elapsed) => result.latency.record(elapsed),
-                        None => result.protocol_errors += 1,
+                        None => {
+                            result.protocol_errors = result.protocol_errors.saturating_add(1);
+                        }
                     }
                 }
                 FrameKind::EchoRequest | FrameKind::ClientHello => {
-                    result.protocol_errors += 1;
+                    result.protocol_errors = result.protocol_errors.saturating_add(1);
                 }
             }
             true
         }
         Some(RaknetClientEvent::DecodeError { .. }) => {
-            result.protocol_errors += 1;
+            result.protocol_errors = result.protocol_errors.saturating_add(1);
             true
         }
         Some(RaknetClientEvent::Disconnected { .. }) | None => {
-            result.unexpected_disconnects += 1;
+            result.unexpected_disconnects = result.unexpected_disconnects.saturating_add(1);
             false
         }
         Some(_) => true,
@@ -401,12 +609,40 @@ async fn send_client_frame(
         .map_err(|_| ())
 }
 
-async fn finish_client(client: &mut RaknetClient, result: &mut ClientTaskResult) {
-    if client.disconnect(None).await.is_ok() {
-        result.clean_disconnects += 1;
-    } else {
-        result.unexpected_disconnects += 1;
-    }
+async fn finish_client(
+    client: &mut RaknetClient,
+    result: &mut ClientTaskResult,
+    intent: DisconnectIntent,
+    disconnect_timeout_seconds: u64,
+) {
+    let outcome = match timeout(
+        Duration::from_secs(disconnect_timeout_seconds),
+        client.disconnect(None),
+    )
+    .await
+    {
+        Ok(Ok(())) => DisconnectOutcome::Clean,
+        Ok(Err(_)) | Err(_) => DisconnectOutcome::Failed,
+    };
+    apply_disconnect_counts(result, classify_disconnect(intent, outcome));
+}
+
+fn apply_disconnect_counts(result: &mut ClientTaskResult, counts: DisconnectCounts) {
+    result.completed_planned_disconnects = result
+        .completed_planned_disconnects
+        .saturating_add(counts.completed_planned_disconnects);
+    result.clean_disconnects = result
+        .clean_disconnects
+        .saturating_add(counts.clean_disconnects);
+    result.unexpected_disconnects = result
+        .unexpected_disconnects
+        .saturating_add(counts.unexpected_disconnects);
+}
+
+fn planned_disconnect_requested(
+    directive_rx: &watch::Receiver<GenerationDirective>,
+) -> bool {
+    *directive_rx.borrow() == GenerationDirective::PlannedDisconnect
 }
 
 fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {
@@ -431,6 +667,42 @@ impl RttLane {
             self.next_due += self.period;
             if self.next_due > now {
                 break;
+            }
+        }
+    }
+}
+
+enum OutcomeSink {
+    Steady(mpsc::Sender<ConnectOutcome>),
+    Generation(mpsc::Sender<GenerationConnectOutcome>),
+}
+
+impl OutcomeSink {
+    async fn ready(&self, client_id: u64) {
+        match self {
+            Self::Steady(tx) => {
+                let _ = tx.send(ConnectOutcome::Ready).await;
+            }
+            Self::Generation(tx) => {
+                let _ = tx
+                    .send(GenerationConnectOutcome::Ready { client_id })
+                    .await;
+            }
+        }
+    }
+
+    async fn failed(&self, client_id: u64, timed_out: bool) {
+        match self {
+            Self::Steady(tx) => {
+                let _ = tx.send(ConnectOutcome::Failed).await;
+            }
+            Self::Generation(tx) => {
+                let _ = tx
+                    .send(GenerationConnectOutcome::Failed {
+                        client_id,
+                        timed_out,
+                    })
+                    .await;
             }
         }
     }
