@@ -352,7 +352,8 @@ impl ChurnCohort {
         };
 
         for index in 0..scenario.clients {
-            let client_id = u64::try_from(index).map_err(|_| ChurnError::InitialPopulationTooLarge)?;
+            let client_id =
+                u64::try_from(index).map_err(|_| ChurnError::InitialPopulationTooLarge)?;
             let (directive_tx, directive_rx) = watch::channel(GenerationDirective::Continue);
             cohort.slots.push(Slot {
                 state: SlotState::ConnectingInitial,
