@@ -82,7 +82,9 @@ payload_bytes = 32
     assert_eq!(correctness.clean_disconnects, 1);
 
     assert_eq!(report.results.transport.start.sessions_current, 1);
+    assert_eq!(report.results.transport.end.sessions_current, 1);
     assert_eq!(report.results.transport.delta.sessions_started, 0);
+    assert_eq!(report.results.transport.delta.sessions_closed, 0);
 
     assert!(workload.unreliable.tx_frames > 0);
     assert!(workload.unreliable.rx_frames > 0);
