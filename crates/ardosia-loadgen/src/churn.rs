@@ -9,6 +9,7 @@ use crate::client_task::{
     ClientTaskResult, GenerationConnectOutcome, GenerationDirective, Phase, run_client_generation,
 };
 use crate::latency::{LatencyHistogram, LatencySummary};
+use crate::report::TransportMetricsReport;
 use crate::scenario::Scenario;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -64,6 +65,15 @@ pub fn classify_disconnect(
             ..DisconnectCounts::default()
         },
     }
+}
+
+pub fn post_drain_transport_is_healthy(
+    sample: TransportMetricsReport,
+    target_clients: usize,
+    baseline_timeouts: u64,
+) -> bool {
+    sample.sessions_current == u64::try_from(target_clients).unwrap_or(u64::MAX)
+        && sample.timed_out_sessions == baseline_timeouts
 }
 
 #[derive(Debug, Clone)]
@@ -238,6 +248,34 @@ impl ChurnRunMetrics {
         self.schedule_misses = self.schedule_misses.saturating_add(1);
     }
 
+    pub fn target_clients(&self) -> usize {
+        self.target_clients
+    }
+
+    pub fn admission_headroom(&self) -> usize {
+        self.admission_headroom
+    }
+
+    pub fn server_max_connections(&self) -> usize {
+        self.server_max_connections
+    }
+
+    pub fn planned_disconnects(&self) -> u64 {
+        self.planned_disconnects
+    }
+
+    pub fn completed_planned_disconnects(&self) -> u64 {
+        self.completed_planned_disconnects
+    }
+
+    pub fn replacement_attempts(&self) -> u64 {
+        self.replacement_attempts
+    }
+
+    pub fn replacement_handshakes(&self) -> u64 {
+        self.replacement_handshakes
+    }
+
     pub fn population_current(&self) -> usize {
         self.population_current
     }
@@ -391,6 +429,10 @@ impl ChurnCohort {
         self.metrics.observe_initial_population(population);
     }
 
+    pub(crate) fn note_schedule_miss(&mut self) {
+        self.metrics.schedule_miss();
+    }
+
     pub(crate) fn schedule_replacement(&mut self) -> Result<bool, ChurnError> {
         let eligible: Vec<bool> = self
             .slots
@@ -503,6 +545,11 @@ impl ChurnCohort {
         match self.slots[index].state {
             SlotState::PlannedDisconnect if result.completed_planned_disconnects == 1 => {
                 self.metrics.completed_planned_disconnect();
+                if matches!(*self.phase_tx.borrow(), Phase::Shutdown | Phase::Abort) {
+                    self.slots[index].state = SlotState::Failed;
+                    self.slots[index].replacement_started = None;
+                    return Ok(());
+                }
                 let replacement_id = self.ids.next_id()?;
                 self.metrics.replacement_attempt_started();
                 let replacement_started = Instant::now();
