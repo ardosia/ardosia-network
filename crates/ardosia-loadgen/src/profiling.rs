@@ -94,6 +94,77 @@ pub struct ProfileMetadata {
     pub failure: Option<String>,
 }
 
+impl ProfileMetadata {
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_capture(
+        scenario_name: impl Into<String>,
+        scenario_path: PathBuf,
+        git_commit: Option<String>,
+        vendor_revision: String,
+        build_profile: String,
+        server_pid: u32,
+        perf_version: Option<String>,
+        frequency_hz: u32,
+        call_graph: CallGraphMode,
+        requested_capture_ms: u64,
+        observed_capture_ms: u64,
+        artifacts: ProfileArtifacts,
+    ) -> Self {
+        Self {
+            scenario_name: scenario_name.into(),
+            scenario_path,
+            git_commit,
+            vendor_revision,
+            build_profile,
+            server_pid,
+            profiler: "perf".into(),
+            perf_version,
+            frequency_hz,
+            call_graph,
+            requested_capture_ms,
+            observed_capture_ms,
+            artifacts,
+            success: true,
+            failure: None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_failure(
+        scenario_name: impl Into<String>,
+        scenario_path: PathBuf,
+        git_commit: Option<String>,
+        vendor_revision: String,
+        build_profile: String,
+        server_pid: u32,
+        perf_version: Option<String>,
+        frequency_hz: u32,
+        call_graph: CallGraphMode,
+        requested_capture_ms: u64,
+        observed_capture_ms: u64,
+        artifacts: ProfileArtifacts,
+        failure: impl Into<String>,
+    ) -> Self {
+        let mut metadata = Self::from_capture(
+            scenario_name,
+            scenario_path,
+            git_commit,
+            vendor_revision,
+            build_profile,
+            server_pid,
+            perf_version,
+            frequency_hz,
+            call_graph,
+            requested_capture_ms,
+            observed_capture_ms,
+            artifacts,
+        );
+        metadata.success = false;
+        metadata.failure = Some(failure.into());
+        metadata
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProfileRun {
     pub report: RunReport,
