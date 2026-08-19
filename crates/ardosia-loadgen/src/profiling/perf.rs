@@ -371,4 +371,30 @@ mod tests {
         assert_eq!(control.state, PerfControlState::Enabled);
         peer_task.await.unwrap();
     }
+
+    #[tokio::test]
+    async fn control_accepts_nul_terminated_ack_frames_across_commands() {
+        let (client, peer) = tokio::io::duplex(128);
+        let (client_read, client_write) = tokio::io::split(client);
+        let (peer_read, mut peer_write) = tokio::io::split(peer);
+        let mut peer_read = BufReader::new(peer_read);
+        let mut control = PerfControl::new(client_read, client_write);
+
+        let peer_task = tokio::spawn(async move {
+            let mut line = String::new();
+            peer_read.read_line(&mut line).await.unwrap();
+            assert_eq!(line, "enable\n");
+            peer_write.write_all(b"ack\n\0").await.unwrap();
+
+            line.clear();
+            peer_read.read_line(&mut line).await.unwrap();
+            assert_eq!(line, "disable\n");
+            peer_write.write_all(b"ack\n\0").await.unwrap();
+        });
+
+        control.enable().await.unwrap();
+        control.disable().await.unwrap();
+        assert_eq!(control.state, PerfControlState::Disabled);
+        peer_task.await.unwrap();
+    }
 }
