@@ -1,8 +1,31 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::report::RunReport;
+
+mod perf;
+mod tools;
+
+pub use perf::{PerfCaptureSummary, PerfCommandSpec, PerfSession};
+pub use tools::ProfileTools;
+
+#[derive(Debug, Error)]
+pub enum ProfileError {
+    #[error("profiling is supported only on Linux")]
+    UnsupportedPlatform,
+    #[error("profiling prerequisite {tool} is unavailable: {detail}")]
+    MissingTool { tool: String, detail: String },
+    #[error("profiling command {tool} failed: {detail}")]
+    CommandFailed { tool: String, detail: String },
+    #[error("perf control protocol failed: {0}")]
+    Control(String),
+    #[error("profiling artifact is empty: {0}")]
+    EmptyArtifact(PathBuf),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
