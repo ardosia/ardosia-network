@@ -4,9 +4,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use tokio::fs::File;
-use tokio::io::{
-    AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
-};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::time::timeout;
 
@@ -92,7 +90,7 @@ struct PerfControl<R, W> {
 
 impl<R, W> PerfControl<R, W>
 where
-    R: AsyncBufRead + Unpin,
+    R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     fn new(reader: R, writer: W) -> Self {
