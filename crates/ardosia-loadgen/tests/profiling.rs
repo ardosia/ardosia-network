@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ardosia_loadgen::profiling::{
-    CallGraphMode, PerfCommandSpec, ProfileArtifacts, ProfileError, ProfileTools, resolve_run_dir,
+    CallGraphMode, PerfCommandSpec, ProfileArtifacts, ProfileError, ProfileMetadata, ProfileTools,
+    resolve_run_dir,
 };
 
 #[test]
@@ -26,6 +27,29 @@ fn artifact_layout_is_stable() {
     assert_eq!(artifacts.perf_report, dir.join("perf-report.txt"));
     assert_eq!(artifacts.stacks_folded, dir.join("stacks.folded"));
     assert_eq!(artifacts.flamegraph_svg, dir.join("flamegraph.svg"));
+}
+
+#[test]
+fn profile_metadata_records_server_pid_and_diagnostic_build_profile() {
+    let dir = Path::new("profiles/steady-1000/run-1");
+    let metadata = ProfileMetadata::from_capture(
+        "steady-1000",
+        "scenarios/steady-1000.toml".into(),
+        Some("abc123".into()),
+        "3edfb4170e6cb5aeed992b09b50176fb7e5b6079".into(),
+        "profiling".into(),
+        4242,
+        Some("perf version 6.x".into()),
+        99,
+        CallGraphMode::Dwarf,
+        60_000,
+        59_998,
+        ProfileArtifacts::in_dir(dir),
+    );
+    assert_eq!(metadata.server_pid, 4242);
+    assert_eq!(metadata.observed_capture_ms, 59_998);
+    assert!(metadata.success);
+    assert!(metadata.failure.is_none());
 }
 
 #[test]
