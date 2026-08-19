@@ -256,13 +256,19 @@ impl PerfSession {
     }
 
     pub async fn disable_and_stop(mut self) -> Result<PerfCaptureSummary, ProfileError> {
-        self.control.disable().await?;
+        if let Err(error) = self.control.disable().await {
+            self.abort().await;
+            return Err(error);
+        }
         let observed_capture_ms = self
             .capture_started
             .take()
             .map(|started| started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64)
             .unwrap_or(0);
-        self.control.stop().await?;
+        if let Err(error) = self.control.stop().await {
+            self.abort().await;
+            return Err(error);
+        }
 
         let status = self.child.wait().await?;
         let mut stderr = String::new();
