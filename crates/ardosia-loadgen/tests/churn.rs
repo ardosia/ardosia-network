@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use ardosia_loadgen::churn::{
-    ChurnRunMetrics, ChurnSchedule, ClientIdAllocator, SlotSelector,
-};
+use ardosia_loadgen::churn::{ChurnRunMetrics, ChurnSchedule, ClientIdAllocator, SlotSelector};
 
 #[test]
 fn canonical_schedule_has_deadline_inclusive_1500_ticks() {
