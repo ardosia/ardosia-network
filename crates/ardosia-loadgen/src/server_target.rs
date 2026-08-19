@@ -11,6 +11,7 @@ use tokio::time::{Instant, sleep, sleep_until};
 use crate::frame::{BenchmarkFrame, FrameKind};
 use crate::runner::RunnerError;
 use crate::scenario::{Scenario, TrafficKind};
+use crate::send_policy::counts_as_benchmark_send_error;
 use crate::workload::{
     WorkloadCounts, WorkloadSide, build_traffic_lanes, deterministic_payload, frame_kind,
     next_lane_deadline,
@@ -307,7 +308,11 @@ async fn handle_server_frame(
                 Ok(()) => result
                     .workload
                     .record_tx(FrameKind::EchoResponse, response.payload.len()),
-                Err(_) => result.send_errors += 1,
+                Err(error) => {
+                    if counts_as_benchmark_send_error(&error) {
+                        result.send_errors += 1;
+                    }
+                }
             }
         }
         FrameKind::EchoResponse => {
@@ -341,8 +346,13 @@ async fn send_due_server_traffic(
 
         match connection.send(frame.encode(), reliability).await {
             Ok(()) => result.workload.record_tx(kind, lane.payload_bytes),
-            Err(NetworkError::ConnectionClosed) => return,
-            Err(_) => result.send_errors += 1,
+            Err(error) => {
+                if counts_as_benchmark_send_error(&error) {
+                    result.send_errors += 1;
+                } else {
+                    return;
+                }
+            }
         }
         lane.sequence = lane.sequence.wrapping_add(1);
         lane.advance(now);
