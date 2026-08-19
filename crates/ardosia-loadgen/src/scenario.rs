@@ -121,9 +121,7 @@ impl Scenario {
         }
 
         if let Some(churn) = &self.churn {
-            if !churn.replacements_per_second.is_finite()
-                || churn.replacements_per_second <= 0.0
-            {
+            if !churn.replacements_per_second.is_finite() || churn.replacements_per_second <= 0.0 {
                 return invalid(
                     "replacements_per_second",
                     "must be finite and greater than 0",
