@@ -4,6 +4,7 @@ mod server_target;
 
 pub mod child_protocol;
 pub mod churn;
+pub mod churn_runner;
 pub mod cli;
 pub mod environment;
 pub mod frame;
