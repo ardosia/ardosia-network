@@ -4,7 +4,7 @@
 
 **Goal:** Add synchronized server-only CPU profiling for the trusted `steady-1000` workload, review that evidence, then add deterministic constant-population `churn-500` with 500 active clients and 25 planned replacements/sec.
 
-**Architecture:** Profiling is an execution mode layered around the existing child-process local benchmark: the parent already owns the server PID, attaches `perf` with events disabled, enables it only for the measured window, then post-processes raw samples into text and flamegraph artifacts. Churn remains workload semantics: an optional scenario block drives a deterministic slot/generation coordinator while client connection generations stay isolated, server admission gets bounded lifecycle headroom, and measured-window telemetry is reconciled with a post-drain population snapshot.
+**Architecture:** First make the benchmark's measured-window end explicit so clients and server workload stop without immediately tearing sessions down. Profiling then wraps the existing child-process local benchmark: the parent already owns the server PID, attaches `perf` disabled after ramp convergence, enables it before the steady window, disables/stops it at the measured deadline, and only then performs benchmark teardown. Churn later reuses the same explicit post-measurement phase with a deterministic slot/generation coordinator, bounded admission headroom, event-level lifecycle accounting, and post-drain transport reconciliation.
 
 **Tech Stack:** Rust 1.88+ / Edition 2024, Tokio, Clap, Serde/TOML/JSON, existing vendored `raknet-rust`, Linux `perf`, `mkfifo`, Inferno (`inferno-collapse-perf`, `inferno-flamegraph`).
 
@@ -16,7 +16,7 @@
 - Keep the public `ardosia-network` API unchanged; profiling/churn belong to `ardosia-loadgen` and benchmark orchestration.
 - Official capacity runs remain `--release`; diagnostic profiling uses a dedicated optimized `profiling` Cargo profile with symbols.
 - Profiling is Linux-first and must never change host `perf_event_paranoid` or other kernel security settings automatically.
-- Profiling targets only the benchmark server child PID and intentionally excludes ramp/handshake samples.
+- Profiling targets only the benchmark server child PID and intentionally excludes ramp/handshake and final teardown samples.
 - Profiling defaults are 99 Hz and DWARF call graphs; selected values must be recorded in metadata.
 - `perf`, `inferno-collapse-perf`, `inferno-flamegraph`, and `mkfifo` are external prerequisites; missing/unusable tooling fails explicitly.
 - Existing scenarios remain backward compatible when `[churn]` is absent.
@@ -35,33 +35,31 @@
 
 New focused units:
 
-- `crates/ardosia-loadgen/src/cli.rs` — Clap command model shared by the binary and parsing tests.
-- `crates/ardosia-loadgen/src/profiling.rs` — profiling request/result/metadata types and artifact-directory resolution.
+- `crates/ardosia-loadgen/src/cli.rs` — Clap command model shared by binary and parsing tests.
+- `crates/ardosia-loadgen/src/profiling.rs` — profile request/result/metadata types and artifact paths.
 - `crates/ardosia-loadgen/src/profiling/perf.rs` — `perf record` process, FIFO control/ACK synchronization, capture lifecycle.
-- `crates/ardosia-loadgen/src/profiling/tools.rs` — external-tool validation/version probing and post-processing pipeline.
-- `crates/ardosia-loadgen/src/churn.rs` — deterministic churn schedule, slot selection, unique-ID allocation, population/churn accounting, and dynamic generation cohort.
-- `crates/ardosia-loadgen/tests/cli.rs` — public CLI parsing regression.
-- `crates/ardosia-loadgen/tests/profiling.rs` — profile path/metadata/tool-command behavior that does not require privileged `perf`.
-- `crates/ardosia-loadgen/tests/churn.rs` — deterministic churn schedule/state/accounting tests.
-- `crates/ardosia-loadgen/tests/client_lifecycle.rs` — planned-disconnect/final-shutdown classification regressions.
+- `crates/ardosia-loadgen/src/profiling/tools.rs` — prerequisite/version probing and artifact post-processing.
+- `crates/ardosia-loadgen/src/churn.rs` — deterministic churn schedule, slot selection, ID allocation, lifecycle accounting, dynamic generation cohort.
+- `crates/ardosia-loadgen/tests/cli.rs` — profile CLI parsing regression.
+- `crates/ardosia-loadgen/tests/profiling.rs` — path/metadata/tool-command tests without privileged `perf`.
+- `crates/ardosia-loadgen/tests/churn.rs` — deterministic churn state/schedule/reconciliation tests.
+- `crates/ardosia-loadgen/tests/client_lifecycle.rs` — planned/final disconnect classification tests.
 - `scenarios/churn-500.toml` — canonical constant-population churn workload.
 
 Existing units changed intentionally:
 
-- `Cargo.toml` — dedicated optimized `profiling` Cargo profile.
-- `.gitignore` — ignore generated `/profiles/` output.
-- `crates/ardosia-loadgen/src/main.rs` — command dispatch and compact churn/profile output only.
+- `Cargo.toml` — optimized `profiling` Cargo profile.
+- `.gitignore` — ignore `/profiles/` output.
+- `crates/ardosia-loadgen/src/main.rs` — command dispatch and compact profile/churn output.
 - `crates/ardosia-loadgen/src/lib.rs` — expose testable CLI/profiling/churn modules.
-- `crates/ardosia-loadgen/src/scenario.rs` — optional `ChurnConfig`, validation, derived admission capacity.
-- `crates/ardosia-loadgen/src/client_task.rs` — per-generation planned-disconnect control plus drain/final-shutdown behavior.
+- `crates/ardosia-loadgen/src/scenario.rs` — optional `ChurnConfig`, validation, admission capacity.
+- `crates/ardosia-loadgen/src/client_task.rs` — explicit post-measurement/final shutdown, later planned-disconnect generation control.
 - `crates/ardosia-loadgen/src/child_protocol.rs` — explicit end-of-measurement command/ack.
-- `crates/ardosia-loadgen/src/server_target.rs` — derived churn admission headroom and stop server-generated workload at measurement end.
-- `crates/ardosia-loadgen/src/runner.rs` — profiling hooks, churn measured loop, bounded drain, post-drain telemetry reconciliation.
-- `crates/ardosia-loadgen/src/report.rs` — optional churn result block and churn/steady correctness gates.
-- `crates/ardosia-loadgen/tests/scenario.rs` — churn parsing/headroom/canonical shape.
-- `crates/ardosia-loadgen/tests/report.rs` — churn gate and steady no-session-churn regressions.
-- `.github/workflows/baseline.yml` — manual `churn-500` choice only; never add profiling.
-- `docs/benchmarks.md` — local profiling/churn instructions and interpretation.
+- `crates/ardosia-loadgen/src/server_target.rs` — stop server workload at measurement end and use churn headroom.
+- `crates/ardosia-loadgen/src/runner.rs` — explicit measurement boundaries, profiling hooks, churn loop/drain/reconciliation.
+- `crates/ardosia-loadgen/src/report.rs` — optional churn result and steady/churn gates.
+- `.github/workflows/baseline.yml` — manual `churn-500` choice only.
+- `docs/benchmarks.md` — local profiling/churn instructions.
 
 ---
 
@@ -79,13 +77,12 @@ Existing units changed intentionally:
 
 **Interfaces:**
 - Produces: `cli::Cli`, `cli::Command::Profile { scenario, bind, output }`.
-- Produces: `profiling::ProfileConfig`, `ProfileArtifacts`, `ProfileMetadata`, `ProfileRun`, `CallGraphMode`.
-- Produces: `profiling::resolve_run_dir(root, run_id) -> PathBuf`.
-- Later tasks add `perf`/tool submodules without changing these serialized field names.
+- Produces: `ProfileConfig`, `ProfileArtifacts`, `ProfileMetadata`, `ProfileRun`, `CallGraphMode`.
+- Produces: `resolve_run_dir(root, run_id) -> PathBuf`.
 
-- [ ] **Step 1: Write failing CLI and path tests**
+- [ ] **Step 1: Write failing CLI and artifact-path tests**
 
-Add `crates/ardosia-loadgen/tests/cli.rs`:
+`tests/cli.rs`:
 
 ```rust
 use ardosia_loadgen::cli::{Cli, Command};
@@ -105,30 +102,23 @@ fn parses_profile_command_without_manual_pid() {
     match cli.command {
         Command::Profile { scenario, output, .. } => {
             assert_eq!(scenario.to_string_lossy(), "scenarios/steady-1000.toml");
-            assert_eq!(
-                output.unwrap().to_string_lossy(),
-                "profiles/steady-1000"
-            );
+            assert_eq!(output.unwrap().to_string_lossy(), "profiles/steady-1000");
         }
         other => panic!("expected profile command, got {other:?}"),
     }
 }
 ```
 
-Add `crates/ardosia-loadgen/tests/profiling.rs`:
+`tests/profiling.rs`:
 
 ```rust
 use std::path::Path;
-
 use ardosia_loadgen::profiling::{ProfileArtifacts, resolve_run_dir};
 
 #[test]
 fn profile_run_directory_is_isolated_under_requested_root() {
     let path = resolve_run_dir(Path::new("profiles/custom"), "1724020000000-4242");
-    assert_eq!(
-        path,
-        Path::new("profiles/custom").join("1724020000000-4242")
-    );
+    assert_eq!(path, Path::new("profiles/custom/1724020000000-4242"));
 }
 
 #[test]
@@ -144,19 +134,17 @@ fn artifact_layout_is_stable() {
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 cargo test -p ardosia-loadgen --test cli --test profiling
 ```
 
-Expected: FAIL because `ardosia_loadgen::cli` and `ardosia_loadgen::profiling` do not exist.
+Expected: FAIL because CLI/profiling modules do not exist.
 
-- [ ] **Step 3: Add the profiling Cargo profile and public command/model types**
+- [ ] **Step 3: Add profile build and models**
 
-Append to root `Cargo.toml`:
+Root `Cargo.toml`:
 
 ```toml
 [profile.profiling]
@@ -167,55 +155,28 @@ strip = false
 
 Add `/profiles/` to `.gitignore`.
 
-Move the existing Clap structs from `main.rs` into `src/cli.rs` and add:
+Move current Clap structs into `src/cli.rs`; preserve Local/Run/Serve/ServeChild and add:
 
 ```rust
-#[derive(Debug, Subcommand)]
-pub enum Command {
-    Local {
-        scenario: PathBuf,
-        #[arg(long, default_value = "127.0.0.1:19132")]
-        bind: SocketAddr,
-    },
-    Profile {
-        scenario: PathBuf,
-        #[arg(long, default_value = "127.0.0.1:19132")]
-        bind: SocketAddr,
-        #[arg(long)]
-        output: Option<PathBuf>,
-    },
-    Run {
-        scenario: PathBuf,
-        #[arg(long)]
-        target: SocketAddr,
-    },
-    Serve {
-        #[arg(long, default_value = "0.0.0.0:19132")]
-        bind: SocketAddr,
-        #[arg(long, default_value_t = 8)]
-        protocol: u8,
-        #[arg(long, default_value_t = 1024)]
-        max_connections: usize,
-    },
-    #[command(hide = true)]
-    ServeChild,
-}
+Profile {
+    scenario: PathBuf,
+    #[arg(long, default_value = "127.0.0.1:19132")]
+    bind: SocketAddr,
+    #[arg(long)]
+    output: Option<PathBuf>,
+},
 ```
 
-Create `src/profiling.rs` with only the model/path surface in this task:
+Create `profiling.rs`:
 
 ```rust
 use std::path::{Path, PathBuf};
-
 use serde::{Deserialize, Serialize};
-
 use crate::report::RunReport;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum CallGraphMode {
-    Dwarf,
-}
+pub enum CallGraphMode { Dwarf }
 
 #[derive(Debug, Clone)]
 pub struct ProfileConfig {
@@ -227,12 +188,7 @@ pub struct ProfileConfig {
 
 impl ProfileConfig {
     pub fn new(scenario_path: PathBuf, output_root: PathBuf) -> Self {
-        Self {
-            scenario_path,
-            output_root,
-            frequency_hz: 99,
-            call_graph: CallGraphMode::Dwarf,
-        }
+        Self { scenario_path, output_root, frequency_hz: 99, call_graph: CallGraphMode::Dwarf }
     }
 }
 
@@ -285,36 +241,23 @@ pub struct ProfileRun {
     pub output_dir: PathBuf,
 }
 
-pub fn resolve_run_dir(root: &Path, run_id: &str) -> PathBuf {
-    root.join(run_id)
-}
+pub fn resolve_run_dir(root: &Path, run_id: &str) -> PathBuf { root.join(run_id) }
 ```
 
-Export `pub mod cli;` and `pub mod profiling;` from `lib.rs`, and make `main.rs` import `ardosia_loadgen::cli::{Cli, Command}`.
+Export `pub mod cli; pub mod profiling;`. `main.rs` imports CLI types. Until Task 4 wires execution, `Command::Profile` returns `Err("profile command is not wired yet".into())` so the match remains exhaustive.
 
-Until Task 3 wires execution, the `Command::Profile` match arm must compile and return a clear `"profile command is not wired yet"` error rather than being omitted from the match.
-
-- [ ] **Step 4: Run focused tests and formatting**
-
-Run:
+- [ ] **Step 4: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p ardosia-loadgen --test cli --test profiling
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add Cargo.toml .gitignore crates/ardosia-loadgen/src crates/ardosia-loadgen/tests/cli.rs crates/ardosia-loadgen/tests/profiling.rs
 git commit -m "feat: add profiling command model"
 ```
 
 ---
 
-### Task 2: `perf` Prerequisites, FIFO Control, and Artifact Post-Processing
+### Task 2: `perf` Prerequisites, FIFO Control, and Post-Processing
 
 **Files:**
 - Create: `crates/ardosia-loadgen/src/profiling/perf.rs`
@@ -323,16 +266,12 @@ git commit -m "feat: add profiling command model"
 - Modify: `crates/ardosia-loadgen/tests/profiling.rs`
 
 **Interfaces:**
-- Consumes: `ProfileConfig`, `ProfileArtifacts`, `CallGraphMode` from Task 1.
-- Produces: `ProfileTools::detect() -> Result<ProfileTools, ProfileError>` and injectable `ProfileTools::from_paths(...)`.
-- Produces: `PerfCommandSpec::new(...)`, `args() -> Vec<String>`.
-- Produces: `PerfSession::attach_disabled(server_pid, config, tools, artifacts)`, `enable()`, `disable_and_stop()`, `abort()`.
-- Produces: `ProfileTools::post_process(artifacts) -> Result<(), ProfileError>`.
-- Produces: `ProfileError`, distinct from benchmark transport/correctness failures.
+- Produces `ProfileError`, `ProfileTools`, `PerfCommandSpec`, `PerfSession`, `PerfCaptureSummary`.
+- `PerfSession` starts attached to only the server PID with events disabled; `enable`, `disable_and_stop`, and `abort` are ACK-synchronized/cleanup-safe.
 
-- [ ] **Step 1: Write RED tests for exact server PID, disabled start, ACK control, and tool failure classification**
+- [ ] **Step 1: Write RED command/control/tool tests**
 
-Extend `tests/profiling.rs`:
+Add command test:
 
 ```rust
 use ardosia_loadgen::profiling::{CallGraphMode, PerfCommandSpec};
@@ -340,12 +279,8 @@ use ardosia_loadgen::profiling::{CallGraphMode, PerfCommandSpec};
 #[test]
 fn perf_command_targets_only_server_pid_and_starts_disabled() {
     let spec = PerfCommandSpec::new(
-        4242,
-        99,
-        CallGraphMode::Dwarf,
-        "control.fifo".into(),
-        "ack.fifo".into(),
-        "perf.data".into(),
+        4242, 99, CallGraphMode::Dwarf,
+        "control.fifo".into(), "ack.fifo".into(), "perf.data".into(),
     );
     let args = spec.args();
     assert!(args.windows(2).any(|w| w == ["-p", "4242"]));
@@ -356,68 +291,33 @@ fn perf_command_targets_only_server_pid_and_starts_disabled() {
 }
 ```
 
-Inside `profiling/perf.rs`, add a unit test with the required imports:
+Inside `perf.rs`, unit-test control ACK with `tokio::io::duplex`, importing `AsyncReadExt`/`AsyncWriteExt`; fake peer must observe `enable\n`, reply `ack\n`, and state must become `Enabled` only after ACK.
+
+For tool validation, write Unix fake executables with:
 
 ```rust
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-#[tokio::test]
-async fn control_waits_for_ack_before_advancing_state() {
-    let (client, mut peer) = tokio::io::duplex(128);
-    let (read_half, write_half) = tokio::io::split(client);
-    let mut control = PerfControl::new(read_half, write_half);
-
-    let peer_task = tokio::spawn(async move {
-        let mut buf = [0u8; 64];
-        let n = peer.read(&mut buf).await.unwrap();
-        assert_eq!(&buf[..n], b"enable\n");
-        peer.write_all(b"ack\n").await.unwrap();
-    });
-
-    control.enable().await.unwrap();
-    peer_task.await.unwrap();
-    assert_eq!(control.state(), PerfControlState::Enabled);
-}
+std::fs::write(path, format!("#!/bin/sh\necho fake-tool 1.0\nexit {exit_code}\n"))?;
 ```
 
-For tool validation, create a Unix-only test helper that writes an executable fake tool:
+set mode `0o755`, validate four exit-0 paths, then assert an exit-7 fake `perf` returns `ProfileError::MissingTool { tool: "perf", .. }`.
 
-```rust
-fn fake_tool(path: &Path, exit_code: i32) {
-    std::fs::write(
-        path,
-        format!("#!/bin/sh\necho fake-tool 1.0\nexit {exit_code}\n"),
-    )
-    .unwrap();
-    let mut permissions = std::fs::metadata(path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions).unwrap();
-}
-```
-
-Validate four exit-0 paths, then replace the fake `perf` path with an exit-7 script and assert `ProfileError::MissingTool { tool, .. }` names `perf`.
-
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 cargo test -p ardosia-loadgen --test profiling
-cargo test -p ardosia-loadgen profiling::perf::tests::control_waits_for_ack_before_advancing_state
+cargo test -p ardosia-loadgen profiling::perf::tests
 ```
 
 Expected: FAIL because perf/tool types do not exist.
 
-- [ ] **Step 3: Add exact profiling error and submodule exports**
+- [ ] **Step 3: Define exact error and tool surface**
 
-Add to `profiling.rs`:
+In `profiling.rs`:
 
 ```rust
 use thiserror::Error;
-
 mod perf;
 mod tools;
-
 pub use perf::{PerfCaptureSummary, PerfCommandSpec, PerfSession};
 pub use tools::ProfileTools;
 
@@ -438,9 +338,7 @@ pub enum ProfileError {
 }
 ```
 
-- [ ] **Step 4: Implement tool detection and exact `perf record` command construction**
-
-In `profiling/tools.rs`, define:
+`ProfileTools`:
 
 ```rust
 #[derive(Debug, Clone)]
@@ -450,104 +348,25 @@ pub struct ProfileTools {
     pub flamegraph: PathBuf,
     pub mkfifo: PathBuf,
 }
-
-impl ProfileTools {
-    pub fn from_paths(
-        perf: PathBuf,
-        collapse_perf: PathBuf,
-        flamegraph: PathBuf,
-        mkfifo: PathBuf,
-    ) -> Self {
-        Self { perf, collapse_perf, flamegraph, mkfifo }
-    }
-
-    pub async fn detect() -> Result<Self, ProfileError> {
-        let tools = Self::from_paths(
-            "perf".into(),
-            "inferno-collapse-perf".into(),
-            "inferno-flamegraph".into(),
-            "mkfifo".into(),
-        );
-        tools.validate().await?;
-        Ok(tools)
-    }
-}
 ```
 
-`validate()` runs every executable with `--version`, captures output, and returns `MissingTool` for spawn failure/non-zero exit. Preserve the successful `perf --version` string for profile metadata.
+`from_paths(...)` is injectable. `detect()` uses names `perf`, `inferno-collapse-perf`, `inferno-flamegraph`, `mkfifo`; `validate()` runs each with `--version`, captures output/status, and preserves successful `perf --version` text.
 
-In `profiling/perf.rs`:
+- [ ] **Step 4: Implement exact perf command and FIFO control**
 
-```rust
-#[derive(Debug, Clone)]
-pub struct PerfCommandSpec {
-    server_pid: u32,
-    frequency_hz: u32,
-    call_graph: CallGraphMode,
-    control_fifo: PathBuf,
-    ack_fifo: PathBuf,
-    perf_data: PathBuf,
-}
+`PerfCommandSpec` stores PID/frequency/callgraph/control FIFO/ACK FIFO/output. Constructor accepts those fields. `args()` yields:
 
-impl PerfCommandSpec {
-    pub fn new(
-        server_pid: u32,
-        frequency_hz: u32,
-        call_graph: CallGraphMode,
-        control_fifo: PathBuf,
-        ack_fifo: PathBuf,
-        perf_data: PathBuf,
-    ) -> Self {
-        Self {
-            server_pid,
-            frequency_hz,
-            call_graph,
-            control_fifo,
-            ack_fifo,
-            perf_data,
-        }
-    }
-
-    pub fn args(&self) -> Vec<String> {
-        let call_graph = match self.call_graph {
-            CallGraphMode::Dwarf => "dwarf",
-        };
-        vec![
-            "record".into(),
-            "-F".into(),
-            self.frequency_hz.to_string(),
-            "-g".into(),
-            "--call-graph".into(),
-            call_graph.into(),
-            "-p".into(),
-            self.server_pid.to_string(),
-            "--delay".into(),
-            "-1".into(),
-            format!(
-                "--control=fifo:{},{}",
-                self.control_fifo.display(),
-                self.ack_fifo.display()
-            ),
-            "-o".into(),
-            self.perf_data.display().to_string(),
-        ]
-    }
-}
+```text
+record -F 99 -g --call-graph dwarf -p <pid> --delay -1 --control=fifo:<ctl>,<ack> -o <perf.data>
 ```
 
-Use `mkfifo` to create control/ACK FIFOs. Open both FIFOs read+write on the harness side before spawning `perf` so FIFO open does not deadlock. Spawn `perf` with `kill_on_drop(true)` and stderr piped for diagnostics.
+Use `mkfifo` for both FIFOs, open each read+write on the harness side before spawning `perf`, spawn with `kill_on_drop(true)`, and pipe stderr.
 
-- [ ] **Step 5: Implement ACK-synchronized control state and cleanup**
-
-Implement:
+Generic internal control:
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PerfControlState {
-    Disabled,
-    Enabled,
-    Stopped,
-}
+enum PerfControlState { Disabled, Enabled, Stopped }
 
 struct PerfControl<R, W> {
     reader: BufReader<R>,
@@ -556,9 +375,7 @@ struct PerfControl<R, W> {
 }
 ```
 
-`send_and_ack("enable")`, `send_and_ack("disable")`, and `send_and_ack("stop")` write `<command>\n`, flush, read one line, and require exactly `ack`. `PerfSession::enable()` records monotonic capture start after enable ACK. `disable_and_stop()` receives disable ACK, records observed capture duration, receives stop ACK, waits for `perf` to exit successfully, closes/unlinks FIFOs, and verifies `perf.data` is non-empty.
-
-Define:
+`send_and_ack` writes `<command>\n`, flushes, reads one line, requires exactly `ack`. `enable` records capture start after ACK. `disable_and_stop` ACKs `disable`, records observed duration, ACKs `stop`, waits successful perf exit, unlinks FIFOs, and verifies non-empty `perf.data`.
 
 ```rust
 #[derive(Debug, Clone)]
@@ -569,40 +386,138 @@ pub struct PerfCaptureSummary {
 }
 ```
 
-`abort()` kills/reaps `perf` if still alive and removes both FIFOs. A synchronous `Drop` cleanup may unlink leftover FIFO paths as a final filesystem guard, but explicit async abort is the primary process cleanup path.
+`abort()` kills/reaps live perf and unlinks FIFOs. Drop may synchronously unlink leftover FIFO paths as a final guard.
 
-- [ ] **Step 6: Implement post-processing without shell pipelines**
+- [ ] **Step 5: Implement post-processing without a shell**
 
-In `profiling/tools.rs`, execute commands directly and check every exit status:
+`ProfileTools::post_process` executes and checks:
 
 1. `perf report --stdio -i <perf.data>` -> `perf-report.txt`.
-2. Spawn `perf script -i <perf.data>` with stdout piped into `inferno-collapse-perf`; write collapsed stdout to `stacks.folded`.
-3. Open `stacks.folded` as stdin for `inferno-flamegraph`; write stdout to `flamegraph.svg`.
+2. `perf script -i <perf.data>` stdout -> stdin of `inferno-collapse-perf`; collapse stdout -> `stacks.folded`.
+3. open `stacks.folded` as stdin of `inferno-flamegraph`; flamegraph stdout -> `flamegraph.svg`.
 
-Use `tokio::process::Command`, `Stdio::piped`, and file handles; do not invoke `sh -c`. Reject empty `perf.data`, `perf-report.txt`, `stacks.folded`, or `flamegraph.svg` with `ProfileError::EmptyArtifact`.
+Use `tokio::process::Command`/`Stdio`, not `sh -c`. Require non-empty `perf.data`, `perf-report.txt`, `stacks.folded`, `flamegraph.svg`.
 
-- [ ] **Step 7: Run focused tests and formatting**
-
-Run:
+- [ ] **Step 6: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p ardosia-loadgen --test profiling
 cargo test -p ardosia-loadgen profiling::perf::tests
-```
-
-Expected: PASS without invoking privileged real `perf`.
-
-- [ ] **Step 8: Commit**
-
-```bash
 git add crates/ardosia-loadgen/src/profiling.rs crates/ardosia-loadgen/src/profiling crates/ardosia-loadgen/tests/profiling.rs
 git commit -m "feat: add perf profiling control"
 ```
 
 ---
 
-### Task 3: Integrate Profiling with the Existing Local Benchmark Window
+### Task 3: Make the Measurement End Explicit Before Profiling
+
+**Files:**
+- Modify: `crates/ardosia-loadgen/src/client_task.rs`
+- Modify: `crates/ardosia-loadgen/src/runner.rs`
+- Modify: `crates/ardosia-loadgen/src/child_protocol.rs`
+- Modify: `crates/ardosia-loadgen/src/server_target.rs`
+- Modify: `crates/ardosia-loadgen/tests/child_protocol.rs`
+- Modify: `crates/ardosia-loadgen/tests/bidirectional.rs`
+
+**Interfaces:**
+- Global phase becomes `Phase::{Ramp, Measure { deadline }, Drain, Shutdown, Abort}`.
+- Child IPC gains `EndMeasurement` / `MeasurementEnded`.
+- Clients stop measured workload at deadline but stay connected until explicit shutdown.
+- Server scheduled workload stops on `EndMeasurement` while connection tasks remain alive.
+
+- [ ] **Step 1: Write RED child-protocol measurement-end test**
+
+Extend `tests/child_protocol.rs` to start a tiny target, then issue:
+
+```rust
+ChildCommand::BeginMeasurement
+ChildCommand::EndMeasurement
+ChildCommand::Stop
+```
+
+and require exact events:
+
+```rust
+ChildEvent::MeasurementStarted
+ChildEvent::MeasurementEnded
+ChildEvent::Stopped { .. }
+```
+
+Add/extend the small bidirectional test so measured traffic completes, then the client remains connected until runner-driven final shutdown and still yields one final clean disconnect.
+
+- [ ] **Step 2: Run RED**
+
+```bash
+cargo test -p ardosia-loadgen --test child_protocol --test bidirectional
+```
+
+Expected: FAIL because `EndMeasurement`/explicit post-measurement shutdown do not exist.
+
+- [ ] **Step 3: Refactor client deadline behavior**
+
+Change:
+
+```rust
+pub(crate) enum Phase {
+    Ramp,
+    Measure { deadline: Instant },
+    Drain,
+    Shutdown,
+    Abort,
+}
+```
+
+At the `Measure` deadline, `run_client_task` exits traffic/RTT scheduling but does **not** call `disconnect`. It enters a post-measurement loop that continues polling RakNet events and phase changes. `Phase::Drain` keeps the session alive with no benchmark workload. `Phase::Shutdown` performs the existing clean disconnect and increments `clean_disconnects`. `Phase::Abort` performs best-effort cleanup without turning a prior benchmark failure into a new correctness signal.
+
+Add `ClientCohort::shutdown()` which sends `Phase::Shutdown`.
+
+- [ ] **Step 4: Add explicit server measurement end**
+
+IPC additions:
+
+```rust
+ChildCommand::EndMeasurement
+ChildEvent::MeasurementEnded
+```
+
+`ServerTargetHandle` gains `end_measurement()` which sends `false` on the existing measurement watch. In `run_connection_task`, if measurement becomes false, `lanes.clear()`; receive/session handling stays alive.
+
+`ChildTarget::end_measurement()` sends command and requires `MeasurementEnded`.
+
+For normal `run_local`, deadline order becomes:
+
+```text
+measured sampler reaches deadline
+child EndMeasurement -> ACK
+transport end snapshot
+cohort Shutdown
+cohort finish
+server Stop
+```
+
+This preserves measured workload bounds while making teardown explicitly later than the measured deadline.
+
+- [ ] **Step 5: GREEN and full non-heavy regression**
+
+```bash
+cargo fmt --all -- --check
+cargo test -p ardosia-loadgen --test child_protocol --test bidirectional --test workload --test send_error_policy
+cargo test --workspace
+```
+
+Expected: PASS with existing steady correctness semantics unchanged.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add crates/ardosia-loadgen/src/client_task.rs crates/ardosia-loadgen/src/runner.rs crates/ardosia-loadgen/src/child_protocol.rs crates/ardosia-loadgen/src/server_target.rs crates/ardosia-loadgen/tests/child_protocol.rs crates/ardosia-loadgen/tests/bidirectional.rs
+git commit -m "refactor: make measurement teardown explicit"
+```
+
+---
+
+### Task 4: Integrate Profiling Around the Explicit Steady Window
 
 **Files:**
 - Modify: `crates/ardosia-loadgen/src/runner.rs`
@@ -611,14 +526,10 @@ git commit -m "feat: add perf profiling control"
 - Modify: `crates/ardosia-loadgen/tests/profiling.rs`
 
 **Interfaces:**
-- Consumes: `PerfSession`, `ProfileTools`, `ProfileConfig`.
-- Produces: `runner::run_profile(bind_addr, scenario_path, scenario, output_root) -> Result<ProfileRun, RunnerError>`.
-- `run_local` retains its current user-facing behavior.
-- Profiling attach happens only after initial transport convergence and before `BeginMeasurement`; enable ACK happens before the measured workload starts.
+- Produces `run_profile(bind_addr, scenario_path, scenario, output_root) -> Result<ProfileRun, RunnerError>`.
+- Private `run_local_internal` accepts optional `ProfileRequest` and returns optional `PerfCaptureSummary`.
 
-- [ ] **Step 1: Write RED metadata construction test**
-
-Add to `tests/profiling.rs`:
+- [ ] **Step 1: Write RED metadata constructor test**
 
 ```rust
 #[test]
@@ -639,107 +550,86 @@ fn profile_metadata_records_server_pid_and_diagnostic_build_profile() {
         ProfileArtifacts::in_dir(dir),
     );
     assert_eq!(metadata.server_pid, 4242);
-    assert_eq!(metadata.requested_capture_ms, 60_000);
     assert_eq!(metadata.observed_capture_ms, 59_998);
-    assert_eq!(metadata.build_profile, "profiling");
     assert!(metadata.success);
     assert!(metadata.failure.is_none());
 }
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 cargo test -p ardosia-loadgen --test profiling profile_metadata_records_server_pid_and_diagnostic_build_profile
 ```
 
-Expected: FAIL because `ProfileMetadata::from_capture` does not exist.
+Expected: FAIL because constructor/integration do not exist.
 
-- [ ] **Step 3: Add metadata constructor and deterministic run-root rules**
+- [ ] **Step 3: Add exact internal profile request and output rules**
 
-`ProfileMetadata::from_capture(...)` fills the exact fields from Task 1, sets `profiler = "perf"`, `success = true`, and `failure = None`.
+```rust
+struct ProfileRequest {
+    config: ProfileConfig,
+    tools: ProfileTools,
+    artifacts: ProfileArtifacts,
+}
+```
 
-Resolve output directories in `run_profile` as:
+Refactor private core to:
+
+```rust
+async fn run_local_internal(
+    bind_addr: SocketAddr,
+    scenario: &Scenario,
+    profile: Option<ProfileRequest>,
+) -> Result<(RunReport, Option<PerfCaptureSummary>), RunnerError>
+```
+
+`run_local` calls it with `None`.
+
+`run_profile` validates tools before server spawn, then resolves:
 
 ```rust
 let root = output_root
     .map(PathBuf::from)
     .unwrap_or_else(|| PathBuf::from("profiles").join(&scenario.name));
-let epoch_ms = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map_err(|error| RunnerError::Task(error.to_string()))?
-    .as_millis();
+let epoch_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 let run_id = format!("{epoch_ms}-{}", std::process::id());
 let output_dir = resolve_run_dir(&root, &run_id);
 let artifacts = ProfileArtifacts::in_dir(&output_dir);
 ```
 
-Thus the default layout is exactly `profiles/<scenario>/<epoch-ms>-<parent-pid>/` and `--output` replaces only the root, not the isolated run ID.
+Add `RunnerError::Profile(#[from] ProfileError)` and map `SystemTimeError` to `RunnerError::Task(error.to_string())` rather than using `?` directly.
 
-- [ ] **Step 4: Refactor local execution into one private core with optional profiling**
+- [ ] **Step 4: Place perf exactly around measurement, not teardown**
 
-Keep `run_local` as a thin wrapper:
-
-```rust
-pub async fn run_local(bind_addr: SocketAddr, scenario: &Scenario) -> Result<RunReport, RunnerError> {
-    let (report, _) = run_local_internal(bind_addr, scenario, None).await?;
-    Ok(report)
-}
-```
-
-Add:
-
-```rust
-pub async fn run_profile(
-    bind_addr: SocketAddr,
-    scenario_path: &Path,
-    scenario: &Scenario,
-    output_root: Option<&Path>,
-) -> Result<ProfileRun, RunnerError>
-```
-
-`run_profile` must:
-
-1. reject non-Linux hosts with `RunnerError::Profile(ProfileError::UnsupportedPlatform)`;
-2. call `ProfileTools::detect().await` **before** spawning the server child;
-3. resolve/create the isolated run directory;
-4. call `run_local_internal(..., Some(ProfileRequest { ... }))`;
-5. post-process captured samples only after the server child is stopped/reaped;
-6. write pretty JSON `run.json` and `profile.json` into the run directory;
-7. return `ProfileRun` for normal stdout/stderr handling.
-
-Add `RunnerError::Profile(#[from] ProfileError)`.
-
-Inside `run_local_internal`, after `wait_for_transport_ready` and CPU sampler priming, create `PerfSession::attach_disabled(child.pid, ...)`. Use this order:
+After initial transport convergence and CPU sampler priming:
 
 ```text
-transport converged
-perf attached disabled
+PerfSession::attach_disabled(child.pid)
 perf enable -> ACK
 child BeginMeasurement -> ACK
 transport start snapshot
-client measured phase starts
-... measured window ...
+cohort Measure
+... hold_seconds ...
 perf disable -> ACK
-perf stop -> ACK / process exit
-normal client/server shutdown
-post-processing after benchmark child exit
+perf stop -> ACK / wait
+child EndMeasurement -> ACK
+transport end snapshot
+cohort Shutdown
+server stop/reap
+post-process artifacts
 ```
 
-Every error branch after a profiler exists must call `profiler.abort().await` before aborting/reaping the benchmark child. If capture/post-processing fails after the output directory exists, write a best-effort `profile.json` with `success = false` and `failure = Some(error.to_string())` before returning the typed profiler error; never relabel that error as RakNet failure.
+Thus ramp and final disconnect cleanup are intentionally outside the profile. Every error branch after `PerfSession` creation calls `abort().await` before benchmark child abort/reap.
 
-- [ ] **Step 5: Wire `Command::Profile` in `main.rs`**
+If an output directory exists and profiling fails, write best-effort `profile.json` with `success=false` and `failure=Some(error.to_string())`; do not classify it as transport failure.
 
-Dispatch:
+`ProfileMetadata::from_capture` fills Task 1 fields, sets `profiler="perf"`, `success=true`, `failure=None`.
+
+- [ ] **Step 5: Wire CLI and files**
 
 ```rust
-Command::Profile {
-    scenario,
-    bind,
-    output,
-} => {
+Command::Profile { scenario, bind, output } => {
     let loaded = load_scenario(&scenario)?;
     let profile = run_profile(bind, &scenario, &loaded, output.as_deref()).await?;
     eprintln!("profile: {}", profile.output_dir.display());
@@ -747,44 +637,28 @@ Command::Profile {
 }
 ```
 
-`emit_report` remains the only normal stdout JSON writer. Profiler diagnostics/artifact paths go to stderr.
+`run_profile` writes pretty `run.json` and `profile.json`; stdout remains only normal `RunReport` JSON via `emit_report`.
 
-- [ ] **Step 6: Verify non-heavy regression gates**
-
-Run:
+- [ ] **Step 6: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
-```
-
-Expected: PASS. Do not invoke real profiling in ordinary tests.
-
-- [ ] **Step 7: Commit**
-
-```bash
 git add crates/ardosia-loadgen/src/runner.rs crates/ardosia-loadgen/src/main.rs crates/ardosia-loadgen/src/profiling.rs crates/ardosia-loadgen/tests/profiling.rs
 git commit -m "feat: profile steady server window"
 ```
 
 ---
 
-### Task 4: Manual `steady-1000` Profile Evidence Checkpoint
+### Task 5: Manual `steady-1000` Profile Evidence Checkpoint
 
 **Files:**
-- Create after evidence exists: `docs/results/2026-08-18-steady-1000-profile.md`
-- Do not modify vendor or optimize code in this task.
+- Create after evidence: `docs/results/2026-08-18-steady-1000-profile.md`
+- No vendor/optimization change in this task.
 
-**Interfaces:**
-- Consumes the new `profile` command from Task 3.
-- Produces a reviewed list of dominant server CPU paths and raw artifacts supplied by the benchmark host.
-- Churn implementation starts only after this checkpoint is reviewed.
-
-- [ ] **Step 1: Verify host tools**
-
-Run on the same Linux host used for trusted local scaling results:
+- [ ] **Step 1: Verify tools on the trusted Linux host**
 
 ```bash
 perf --version
@@ -793,11 +667,9 @@ inferno-flamegraph --version
 mkfifo --version
 ```
 
-Expected: all commands exit 0. If `perf` is blocked by host policy, report the exact diagnostic; do not change kernel policy automatically.
+All must exit 0. On perf permission failure, preserve exact diagnostic; never change kernel policy automatically.
 
-- [ ] **Step 2: Build and run the canonical profile**
-
-Run:
+- [ ] **Step 2: Run canonical profile**
 
 ```bash
 cargo run --profile profiling -p ardosia-loadgen -- \
@@ -805,25 +677,19 @@ cargo run --profile profiling -p ardosia-loadgen -- \
   --output profiles/steady-1000
 ```
 
-Expected benchmark correctness: 1000/1000 initial sessions, zero unexpected disconnect/protocol/send/backpressure failures. Required non-empty artifacts: `run.json`, `profile.json`, `perf.data`, `perf-report.txt`, `stacks.folded`, and `flamegraph.svg`.
+Require benchmark correctness plus non-empty `run.json`, `profile.json`, `perf.data`, `perf-report.txt`, `stacks.folded`, `flamegraph.svg`.
 
-- [ ] **Step 3: Inspect the profile before proposing any optimization**
-
-Run:
+- [ ] **Step 3: Review evidence before churn or optimization**
 
 ```bash
 head -n 80 <profile-dir>/perf-report.txt
 ```
 
-and inspect `<profile-dir>/flamegraph.svg`. Record top CPU paths with percentages/symbol names exactly as the profile reports them, separated into Ardosia wrapper/orchestrator, Tokio/runtime/syscall, vendored RakNet, allocator/memory, and profiling/unwinding artifacts when present.
+Inspect flamegraph and record top CPU paths/percentages exactly. Separate Ardosia wrapper, Tokio/runtime/syscalls, vendored RakNet, allocator/memory, and profiler/unwinding artifacts. A hot vendor symbol alone does not authorize a patch.
 
-Do not interpret one hot symbol as permission to patch vendor code.
+- [ ] **Step 4: Record and commit profile evidence**
 
-- [ ] **Step 4: Write and commit the evidence note**
-
-`docs/results/2026-08-18-steady-1000-profile.md` contains the exact git commit, profile tool versions, artifact directory, benchmark correctness summary, top observed CPU paths, and the conclusion `optimization deferred pending churn evidence` unless the profile proves a correctness bug or pathological harness artifact.
-
-Commit:
+`docs/results/2026-08-18-steady-1000-profile.md` records commit, tool versions, artifact directory, correctness, dominant paths, and conclusion `optimization deferred pending churn evidence` unless the profile proves a correctness bug or harness artifact.
 
 ```bash
 git add docs/results/2026-08-18-steady-1000-profile.md
@@ -832,7 +698,7 @@ git commit -m "docs: record steady-1000 CPU profile"
 
 ---
 
-### Task 5: Churn Scenario Model, Exact Schedule, Slot Selection, and Admission Headroom
+### Task 6: Churn Scenario, Exact Scheduler, IDs, and Admission Headroom
 
 **Files:**
 - Modify: `crates/ardosia-loadgen/src/scenario.rs`
@@ -843,45 +709,32 @@ git commit -m "docs: record steady-1000 CPU profile"
 - Create: `scenarios/churn-500.toml`
 
 **Interfaces:**
-- Produces: `scenario::ChurnConfig { replacements_per_second: f64 }` and `Scenario::churn: Option<ChurnConfig>`.
-- Produces: `Scenario::benchmark_max_connections() -> usize` and `Scenario::churn_admission_headroom() -> usize`.
-- Produces: `ChurnSchedule::new(rate, hold) -> Result<ChurnSchedule, ChurnError>`, `planned_ticks()`, `period()`, `due_offset(index)`.
-- Produces: deterministic `SlotSelector` and `ClientIdAllocator::next_id() -> Result<u64, ChurnError>`.
+- `Scenario::churn: Option<ChurnConfig>`.
+- `churn_admission_headroom()`, `benchmark_max_connections()`.
+- `ChurnSchedule`, `SlotSelector`, `ClientIdAllocator`, `ChurnError`.
 
-- [ ] **Step 1: Write RED parsing/headroom/canonical scenario tests**
+- [ ] **Step 1: Write RED scenario/schedule/ID tests**
 
-Extend `tests/scenario.rs`:
+Scenario tests:
 
 ```rust
 #[test]
 fn parses_churn_and_derives_canonical_admission_headroom() {
     let scenario = load_checked_in("churn-500.toml");
-    let churn = scenario.churn.as_ref().expect("churn config");
     assert_eq!(scenario.clients, 500);
-    assert_eq!(churn.replacements_per_second, 25.0);
+    assert_eq!(scenario.churn.as_ref().unwrap().replacements_per_second, 25.0);
     assert_eq!(scenario.churn_admission_headroom(), 125);
     assert_eq!(scenario.benchmark_max_connections(), 625);
 }
-
-#[test]
-fn rejects_non_positive_or_non_finite_churn_rate() {
-    for rate in ["0.0", "-1.0", "inf", "nan"] {
-        let input = format!("{BASE}\n[churn]\nreplacements_per_second = {rate}\n");
-        let error = Scenario::from_str(&input).unwrap_err();
-        assert!(error.to_string().contains("replacements_per_second"));
-    }
-}
 ```
 
-Add `tests/churn.rs`:
+Reject `0.0`, `-1.0`, `inf`, `nan` for `replacements_per_second`.
+
+Churn tests:
 
 ```rust
-use std::time::Duration;
-
-use ardosia_loadgen::churn::{ChurnSchedule, ClientIdAllocator, SlotSelector};
-
 #[test]
-fn canonical_schedule_has_exact_deadline_inclusive_1500_ticks() {
+fn canonical_schedule_has_deadline_inclusive_1500_ticks() {
     let schedule = ChurnSchedule::new(25.0, Duration::from_secs(60)).unwrap();
     assert_eq!(schedule.planned_ticks(), 1500);
     assert_eq!(schedule.due_offset(0), Some(Duration::from_millis(40)));
@@ -890,7 +743,7 @@ fn canonical_schedule_has_exact_deadline_inclusive_1500_ticks() {
 }
 
 #[test]
-fn unique_ids_start_after_initial_population_and_never_reuse() {
+fn ids_never_reuse() {
     let mut ids = ClientIdAllocator::after_initial_population(500).unwrap();
     assert_eq!(ids.next_id().unwrap(), 500);
     assert_eq!(ids.next_id().unwrap(), 501);
@@ -898,42 +751,28 @@ fn unique_ids_start_after_initial_population_and_never_reuse() {
 }
 ```
 
-Add a selector test with availability `[false, true, true]` and verify repeated selections deterministically rotate among eligible indices without depending on hash iteration.
+Add deterministic selector test over `[false, true, true]`.
 
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 cargo test -p ardosia-loadgen --test scenario --test churn
 ```
 
-Expected: FAIL because churn scenario/config/schedule types and `churn-500.toml` do not exist.
-
-- [ ] **Step 3: Add optional scenario config and safe derived capacity**
-
-Add to `Scenario`:
+- [ ] **Step 3: Implement config/headroom**
 
 ```rust
-#[serde(default)]
-pub churn: Option<ChurnConfig>,
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ChurnConfig {
-    pub replacements_per_second: f64,
-}
+pub struct ChurnConfig { pub replacements_per_second: f64 }
 ```
 
-Validation mirrors traffic/RTT finite-positive checks.
-
-Derived capacity preserves existing non-churn `clients + 64` behavior and uses the spec formula for churn:
+Add optional serde-default field to `Scenario`; finite-positive validation.
 
 ```rust
 pub fn churn_admission_headroom(&self) -> usize {
     self.churn.as_ref().map_or(0, |churn| {
         (churn.replacements_per_second * self.connect_timeout_seconds as f64)
-            .ceil()
-            .min(usize::MAX as f64) as usize
+            .ceil().min(usize::MAX as f64) as usize
     })
 }
 
@@ -946,9 +785,7 @@ pub fn benchmark_max_connections(&self) -> usize {
 }
 ```
 
-- [ ] **Step 4: Implement deterministic schedule/selector/ID helpers**
-
-Define:
+- [ ] **Step 4: Implement exact churn helpers**
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -962,32 +799,16 @@ pub enum ChurnError {
 }
 ```
 
-`ChurnSchedule::new` rejects only non-finite/non-positive rates. It stores the rate and hold duration, computes:
+Schedule stores rate/hold. `planned_ticks = floor(rate * hold_seconds)`. `period = Duration::from_secs_f64(1.0/rate)`. `due_offset(i) = Duration::from_secs_f64((i+1) as f64/rate)` when `i < planned_ticks`; positive low rates yielding zero ticks remain valid.
+
+`SlotSelector` stores `next_index` and scans at most N availability entries. `ClientIdAllocator`:
 
 ```rust
-planned_ticks = (rate * hold.as_secs_f64()).floor() as u64
-period = Duration::from_secs_f64(1.0 / rate)
-due_offset(i) = Duration::from_secs_f64((i + 1) as f64 / rate), for i < planned_ticks
-```
-
-A positive rate that yields zero planned ticks is valid and simply produces no scheduled replacement inside that measured window; scenario validation itself remains exactly finite-and-positive as specified.
-
-`SlotSelector` stores only `next_index`; selection scans at most `slots.len()` entries, picks the first eligible active slot, then advances to the following slot.
-
-`ClientIdAllocator` is:
-
-```rust
-pub struct ClientIdAllocator {
-    next: u64,
-}
-
+pub struct ClientIdAllocator { next: u64 }
 impl ClientIdAllocator {
     pub fn after_initial_population(clients: usize) -> Result<Self, ChurnError> {
-        Ok(Self {
-            next: u64::try_from(clients).map_err(|_| ChurnError::InitialPopulationTooLarge)?,
-        })
+        Ok(Self { next: u64::try_from(clients).map_err(|_| ChurnError::InitialPopulationTooLarge)? })
     }
-
     pub fn next_id(&mut self) -> Result<u64, ChurnError> {
         let id = self.next;
         self.next = self.next.checked_add(1).ok_or(ChurnError::ClientIdExhausted)?;
@@ -996,9 +817,9 @@ impl ClientIdAllocator {
 }
 ```
 
-- [ ] **Step 5: Add canonical `scenarios/churn-500.toml`**
+- [ ] **Step 5: Add canonical scenario**
 
-Use exactly:
+`scenarios/churn-500.toml` is exactly steady-500 traffic/RTT plus:
 
 ```toml
 name = "churn-500"
@@ -1035,163 +856,109 @@ payload_bytes = 32
 replacements_per_second = 25.0
 ```
 
-- [ ] **Step 6: Run focused tests and commit**
-
-Run:
+- [ ] **Step 6: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p ardosia-loadgen --test scenario --test churn
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
 git add crates/ardosia-loadgen/src/scenario.rs crates/ardosia-loadgen/src/churn.rs crates/ardosia-loadgen/src/lib.rs crates/ardosia-loadgen/tests/scenario.rs crates/ardosia-loadgen/tests/churn.rs scenarios/churn-500.toml
 git commit -m "feat: define deterministic churn scenarios"
 ```
 
 ---
 
-### Task 6: Client Generation Lifecycle and Explicit End-of-Measurement Control
+### Task 7: Add Per-Generation Planned Disconnect Control
 
 **Files:**
+- Modify: `crates/ardosia-loadgen/src/churn.rs`
 - Modify: `crates/ardosia-loadgen/src/client_task.rs`
-- Modify: `crates/ardosia-loadgen/src/runner.rs`
-- Modify: `crates/ardosia-loadgen/src/child_protocol.rs`
-- Modify: `crates/ardosia-loadgen/src/server_target.rs`
 - Create: `crates/ardosia-loadgen/tests/client_lifecycle.rs`
-- Modify: `crates/ardosia-loadgen/tests/child_protocol.rs`
 
 **Interfaces:**
-- Produces global `Phase::{Ramp, Measure { deadline }, Drain, Shutdown, Abort}`.
-- Produces per-generation `GenerationDirective::{Continue, PlannedDisconnect}`.
-- `ClientTaskResult` gains `client_id` and `completed_planned_disconnects`; final `clean_disconnects` keeps its old meaning.
-- `ConnectOutcome` becomes tagged by `client_id` and distinguishes timeout from connection error.
-- Child IPC gains `EndMeasurement` / `MeasurementEnded`.
+- `GenerationDirective::{Continue, PlannedDisconnect}`.
+- Tagged `ConnectOutcome::{Ready { client_id }, Failed { client_id, timed_out }}`.
+- `ClientTaskResult` gains `client_id`, `completed_planned_disconnects`.
+- Pure disconnect classifier types below.
 
-- [ ] **Step 1: Write RED lifecycle classification tests**
-
-Create `tests/client_lifecycle.rs` around a pure classifier exported from `churn`:
+- [ ] **Step 1: Write RED classification tests**
 
 ```rust
-use ardosia_loadgen::churn::{
-    DisconnectIntent, DisconnectOutcome, classify_disconnect,
-};
+use ardosia_loadgen::churn::{DisconnectIntent, DisconnectOutcome, classify_disconnect};
 
 #[test]
 fn planned_clean_disconnect_is_not_final_clean_or_unexpected() {
-    let counts = classify_disconnect(DisconnectIntent::PlannedChurn, DisconnectOutcome::Clean);
-    assert_eq!(counts.completed_planned_disconnects, 1);
-    assert_eq!(counts.clean_disconnects, 0);
-    assert_eq!(counts.unexpected_disconnects, 0);
+    let c = classify_disconnect(DisconnectIntent::PlannedChurn, DisconnectOutcome::Clean);
+    assert_eq!(c.completed_planned_disconnects, 1);
+    assert_eq!(c.clean_disconnects, 0);
+    assert_eq!(c.unexpected_disconnects, 0);
 }
 
 #[test]
-fn final_clean_disconnect_keeps_existing_clean_disconnect_semantics() {
-    let counts = classify_disconnect(DisconnectIntent::FinalShutdown, DisconnectOutcome::Clean);
-    assert_eq!(counts.completed_planned_disconnects, 0);
-    assert_eq!(counts.clean_disconnects, 1);
-    assert_eq!(counts.unexpected_disconnects, 0);
+fn final_clean_disconnect_keeps_existing_semantics() {
+    let c = classify_disconnect(DisconnectIntent::FinalShutdown, DisconnectOutcome::Clean);
+    assert_eq!(c.completed_planned_disconnects, 0);
+    assert_eq!(c.clean_disconnects, 1);
+    assert_eq!(c.unexpected_disconnects, 0);
 }
 ```
 
-Extend `tests/child_protocol.rs` to send `BeginMeasurement`, `EndMeasurement`, then `Stop`, requiring `MeasurementStarted` then `MeasurementEnded` ACKs.
-
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
-cargo test -p ardosia-loadgen --test client_lifecycle --test child_protocol
+cargo test -p ardosia-loadgen --test client_lifecycle
 ```
 
-Expected: FAIL because lifecycle classification and `EndMeasurement` do not exist.
+- [ ] **Step 3: Implement exact classifier**
 
-- [ ] **Step 3: Refactor one client task into a reusable connection generation**
-
-Change the task signature:
+In `churn.rs`:
 
 ```rust
-pub(crate) async fn run_client_task(
-    target: SocketAddr,
-    client_id: u64,
-    scenario: Scenario,
-    stagger: Duration,
-    mut phase_rx: watch::Receiver<Phase>,
-    mut directive_rx: watch::Receiver<GenerationDirective>,
-    outcome_tx: mpsc::Sender<ConnectOutcome>,
-) -> ClientTaskResult
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectIntent { PlannedChurn, FinalShutdown }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectOutcome { Clean, Failed }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DisconnectCounts {
+    pub completed_planned_disconnects: usize,
+    pub clean_disconnects: usize,
+    pub unexpected_disconnects: usize,
+}
+
+pub fn classify_disconnect(intent: DisconnectIntent, outcome: DisconnectOutcome) -> DisconnectCounts {
+    match (intent, outcome) {
+        (DisconnectIntent::PlannedChurn, DisconnectOutcome::Clean) => DisconnectCounts { completed_planned_disconnects: 1, ..Default::default() },
+        (DisconnectIntent::FinalShutdown, DisconnectOutcome::Clean) => DisconnectCounts { clean_disconnects: 1, ..Default::default() },
+        (_, DisconnectOutcome::Failed) => DisconnectCounts { unexpected_disconnects: 1, ..Default::default() },
+    }
+}
 ```
 
-`ConnectOutcome` becomes:
+- [ ] **Step 4: Refactor client generation control**
 
 ```rust
+pub(crate) enum GenerationDirective { Continue, PlannedDisconnect }
 pub(crate) enum ConnectOutcome {
     Ready { client_id: u64 },
     Failed { client_id: u64, timed_out: bool },
 }
 ```
 
-At a planned directive, use a biased `tokio::select!` so the explicit lifecycle request wins over a simultaneous remote-disconnect event. A successful planned `client.disconnect(None)` increments only `completed_planned_disconnects`. A successful `Phase::Shutdown` disconnect increments only `clean_disconnects`.
+`run_client_task` gains `directive_rx: watch::Receiver<GenerationDirective>`. Use biased selects so a delivered planned directive wins over simultaneous remote disconnect processing. Planned disconnect calls `client.disconnect(None)` under `timeout(connect_timeout_seconds, ...)`; clean planned exit increments only `completed_planned_disconnects`. Final `Phase::Shutdown` uses `DisconnectIntent::FinalShutdown` and retains `clean_disconnects` semantics. Connect timeout and connect error are distinguished in `ConnectOutcome`.
 
-Wrap planned/final `disconnect()` with `tokio::time::timeout(Duration::from_secs(scenario.connect_timeout_seconds), ...)` so a broken close cannot make churn drain unbounded.
+Steady `ClientCohort` creates one `GenerationDirective::Continue` sender per initial task and never changes it.
 
-At the measured deadline, stop traffic/RTT scheduling but **do not automatically disconnect**. Continue polling RakNet events while waiting for `Phase::Drain`, `Phase::Shutdown`, `Phase::Abort`, or a planned directive. Replacement clients that connect during `Phase::Drain` stay connected without starting application workload.
-
-For existing steady runs, `ClientCohort` holds one never-changed generation directive sender per initial client and runner sends `Phase::Shutdown` immediately after the measured window.
-
-- [ ] **Step 4: Add child/server measurement-end control**
-
-Extend IPC:
-
-```rust
-pub enum ChildCommand {
-    Start { bind_addr: String, scenario: Scenario },
-    BeginMeasurement,
-    EndMeasurement,
-    Snapshot,
-    Stop,
-}
-
-pub enum ChildEvent {
-    Ready { pid: u32 },
-    MeasurementStarted,
-    MeasurementEnded,
-    Snapshot { metrics: TransportMetricsReport },
-    Stopped { report: Box<ServerRunReport> },
-    Error { message: String },
-}
-```
-
-On `EndMeasurement`, child sets the server measurement watch false and ACKs `MeasurementEnded`.
-
-In each server connection task, when measurement becomes false, clear scheduled server traffic lanes. Keep receive/session cleanup alive. Add `ChildTarget::end_measurement()` in `runner.rs` and call it at the steady deadline before final client shutdown so server workload counters remain bounded to the measured interval.
-
-- [ ] **Step 5: Run focused and existing workload regressions**
-
-Run:
+- [ ] **Step 5: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
-cargo test -p ardosia-loadgen --test client_lifecycle --test child_protocol --test workload --test bidirectional
-cargo test -p ardosia-loadgen --test send_error_policy
-```
-
-Expected: PASS, including existing benign `ConnectionClosed` teardown behavior.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add crates/ardosia-loadgen/src/client_task.rs crates/ardosia-loadgen/src/runner.rs crates/ardosia-loadgen/src/child_protocol.rs crates/ardosia-loadgen/src/server_target.rs crates/ardosia-loadgen/tests/client_lifecycle.rs crates/ardosia-loadgen/tests/child_protocol.rs
-git commit -m "feat: add controllable client lifecycle"
+cargo test -p ardosia-loadgen --test client_lifecycle --test bidirectional --test send_error_policy
+git add crates/ardosia-loadgen/src/churn.rs crates/ardosia-loadgen/src/client_task.rs crates/ardosia-loadgen/tests/client_lifecycle.rs
+git commit -m "feat: add planned client disconnects"
 ```
 
 ---
 
-### Task 7: Constant-Population Churn Cohort and Event-Level Accounting
+### Task 8: Constant-Population Churn Cohort and Event Accounting
 
 **Files:**
 - Modify: `crates/ardosia-loadgen/src/churn.rs`
@@ -1199,61 +966,67 @@ git commit -m "feat: add controllable client lifecycle"
 - Modify: `crates/ardosia-loadgen/tests/churn.rs`
 
 **Interfaces:**
-- Consumes: `run_client_task`, `Phase`, `GenerationDirective`, `ConnectOutcome`, `ChurnSchedule`, selector, ID allocator.
-- Produces: `ChurnCohort::spawn_initial(target, scenario)`, `next_event()`, `begin_measurement(deadline)`, `run_planned_tick()`, `enter_drain()`, `shutdown()`, `finish()`.
-- Produces: `ChurnRunMetrics` with exact lifecycle/population/replacement-latency accounting.
+- Produces `ChurnRunMetrics`, `ChurnCohort`, `ChurnEvent`.
+- Cohort is sole owner of logical slot state; detached generation tasks only emit events/results.
 
-- [ ] **Step 1: Write RED pure-state tests for overlapping replacements and population accounting**
-
-Extend `tests/churn.rs`:
+- [ ] **Step 1: Write RED metrics/state tests**
 
 ```rust
 #[test]
-fn overlapping_replacements_reduce_active_population_then_recover() {
-    let mut state = ChurnRunMetrics::for_target(500, 125, 625, 1500);
-    state.observe_initial_population(500);
-
-    state.planned_disconnect_started();
-    state.planned_disconnect_started();
-    assert_eq!(state.population_current(), 498);
-    assert_eq!(state.population_min(), 498);
-
-    state.replacement_attempt_started();
-    state.replacement_attempt_started();
-    assert_eq!(state.replacement_inflight_peak(), 2);
-
-    state.replacement_connected(Duration::from_millis(8));
-    state.replacement_connected(Duration::from_millis(11));
-    assert_eq!(state.population_current(), 500);
-    assert_eq!(state.population_end(), 500);
+fn overlapping_replacements_reduce_population_then_recover() {
+    let mut m = ChurnRunMetrics::for_target(500, 125, 625, 1500);
+    m.observe_initial_population(500);
+    m.planned_disconnect_started();
+    m.planned_disconnect_started();
+    assert_eq!(m.population_current(), 498);
+    assert_eq!(m.population_min(), 498);
+    m.replacement_attempt_started();
+    m.replacement_attempt_started();
+    assert_eq!(m.replacement_inflight_peak(), 2);
+    m.replacement_connected(Duration::from_millis(8));
+    m.replacement_connected(Duration::from_millis(11));
+    assert_eq!(m.population_current(), 500);
 }
 ```
 
-Add tests that a replacement timeout increments both `replacement_failures` and `replacement_timeouts`, and that a nominal tick with no eligible active slot increments `schedule_misses` while the precomputed `planned_disconnects` total stays unchanged.
+Add timeout failure test and schedule-miss test.
 
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 cargo test -p ardosia-loadgen --test churn
 ```
 
-Expected: FAIL because event-level churn accounting/cohort APIs do not exist.
+- [ ] **Step 3: Implement exact metrics model**
 
-- [ ] **Step 3: Implement slot/generation state and unified result events**
+```rust
+pub struct ChurnRunMetrics {
+    pub(crate) target_clients: usize,
+    pub(crate) admission_headroom: usize,
+    pub(crate) server_max_connections: usize,
+    pub(crate) planned_disconnects: u64,
+    pub(crate) completed_planned_disconnects: u64,
+    pub(crate) replacement_attempts: u64,
+    pub(crate) replacement_handshakes: u64,
+    pub(crate) replacement_failures: u64,
+    pub(crate) replacement_timeouts: u64,
+    pub(crate) schedule_misses: u64,
+    pub(crate) population_current: usize,
+    pub(crate) population_min: usize,
+    pub(crate) population_max: usize,
+    pub(crate) replacement_inflight: usize,
+    pub(crate) replacement_inflight_peak: usize,
+    pub(crate) replacement_latency: LatencyHistogram,
+}
+```
 
-Use fixed logical slots:
+`for_target(target, headroom, max_connections, planned)` initializes planned count. `observe_initial_population` sets current/min/max. `planned_disconnect_started` decrements current and updates min. `completed_planned_disconnect` increments completion. `replacement_attempt_started` increments attempts/inflight/peak. `replacement_connected(duration)` increments handshakes, decrements inflight, increments active population/max, records latency. `replacement_failed(timed_out)` increments failures, optional timeout, decrements inflight. `schedule_miss()` increments misses. Query methods used by tests return current/min/end/peak.
+
+- [ ] **Step 4: Implement slots and cohort events**
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SlotState {
-    ConnectingInitial,
-    Active,
-    PlannedDisconnect,
-    ConnectingReplacement,
-    Failed,
-}
+enum SlotState { ConnectingInitial, Active, PlannedDisconnect, ConnectingReplacement, Failed }
 
 struct Slot {
     state: SlotState,
@@ -1261,29 +1034,18 @@ struct Slot {
     directive_tx: watch::Sender<GenerationDirective>,
     replacement_started: Option<Instant>,
 }
+
+pub(crate) enum ChurnEvent {
+    Connect(ConnectOutcome),
+    Finished(ClientTaskResult),
+}
 ```
 
-Spawn generation tasks through one helper that wraps `run_client_task` and sends the completed `ClientTaskResult` to a cohort result channel. `ChurnCohort::next_event()` selects between tagged connect outcomes and finished-generation results so all slot state changes happen in one owner; detached tasks never mutate slot state directly.
+Generation spawn wrapper sends task result to a result channel. `ChurnCohort::next_event()` selects connect outcome/result channels; all slot mutation occurs in the cohort owner. Initial IDs are `0..clients-1`; replacements use allocator.
 
-Initial clients use IDs `0..clients-1`. Replacement IDs come only from `ClientIdAllocator`.
+At planned tick: deterministic active slot -> state PlannedDisconnect -> population decremented -> directive sent. On planned finished result: completion metric -> allocate unique ID -> replacement attempt/inflight -> spawn same slot. On Ready: latency from slot `replacement_started` -> Active. On failed replacement: Failed and failure metrics. No eligible slot or failed directive delivery -> `schedule_miss`.
 
-- [ ] **Step 4: Implement planned-tick lifecycle**
-
-At every nominal churn tick:
-
-1. choose an eligible active slot deterministically;
-2. set slot state to `PlannedDisconnect` and decrement active population immediately;
-3. send `GenerationDirective::PlannedDisconnect`;
-4. on a finished result with `completed_planned_disconnects == 1`, increment completed planned disconnects and spawn the replacement for the same slot;
-5. increment replacement attempts and in-flight count at replacement spawn;
-6. on `ConnectOutcome::Ready`, record monotonic replacement latency, mark active, increment replacement handshakes, decrement in-flight;
-7. on replacement connect failure/timeout, record failure and leave the slot failed so final drain cannot falsely pass.
-
-`planned_disconnects` is initialized from `ChurnSchedule::planned_ticks()` and is never silently reduced. If no active slot is eligible or a directive cannot be delivered, increment `schedule_misses`.
-
-- [ ] **Step 5: Implement bounded-drain predicates without hidden wall-clock waits**
-
-Add:
+Expose:
 
 ```rust
 pub(crate) fn ready_for_post_drain_verification(&self) -> bool {
@@ -1291,51 +1053,41 @@ pub(crate) fn ready_for_post_drain_verification(&self) -> bool {
         && self.metrics.replacement_attempts == self.metrics.planned_disconnects
         && self.metrics.replacement_handshakes == self.metrics.replacement_attempts
         && self.metrics.replacement_inflight == 0
-        && self.metrics.population_current == self.target_clients
+        && self.metrics.population_current == self.metrics.target_clients
 }
 ```
 
-The runner owns the wall-clock drain deadline in Task 8; `ChurnCohort` only processes state/events and exposes readiness.
+No wall-clock waits inside this predicate/cohort model.
 
-- [ ] **Step 6: Run focused tests and commit**
-
-Run:
+- [ ] **Step 5: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p ardosia-loadgen --test churn --test client_lifecycle
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
 git add crates/ardosia-loadgen/src/churn.rs crates/ardosia-loadgen/src/client_task.rs crates/ardosia-loadgen/tests/churn.rs
 git commit -m "feat: orchestrate constant population churn"
 ```
 
 ---
 
-### Task 8: Run Churn During the Measured Window and Reconcile Post-Drain Transport
+### Task 9: Execute Churn, Bounded Drain, and Post-Drain Transport Reconciliation
 
 **Files:**
+- Modify: `crates/ardosia-loadgen/src/churn.rs`
 - Modify: `crates/ardosia-loadgen/src/runner.rs`
 - Modify: `crates/ardosia-loadgen/src/server_target.rs`
 - Modify: `crates/ardosia-loadgen/tests/churn.rs`
 
 **Interfaces:**
-- Consumes: `ChurnCohort`, `ChurnSchedule`, `Scenario::benchmark_max_connections`, child `EndMeasurement`.
-- Produces: churn path inside `run_local`; non-churn path remains current steady behavior.
-- Produces: measured transport start/end plus post-drain transport snapshot.
+- `server_target` uses `Scenario::benchmark_max_connections()`.
+- Produces `post_drain_transport_is_healthy(sample, target, baseline_timeouts)`.
+- Churn path keeps measured window/delta separate from drain snapshot.
 
-- [ ] **Step 1: Write RED headroom usage and drain-reconciliation tests**
-
-Add tests proving canonical churn uses server capacity 625 while steady-500 retains 564 (`500 + 64`). Add a pure reconciliation helper test:
+- [ ] **Step 1: Write RED headroom/reconciliation tests**
 
 ```rust
 #[test]
-fn post_drain_population_accepts_nonzero_measured_session_churn() {
+fn post_drain_population_accepts_lifecycle_totals_but_requires_target_current() {
     let post = TransportMetricsReport {
         sessions_current: 500,
         sessions_started_total: 2000,
@@ -1347,85 +1099,90 @@ fn post_drain_population_accepts_nonzero_measured_session_churn() {
 }
 ```
 
-The helper rejects `sessions_current != target` and any lifetime timeout growth from the measured-start baseline.
+Also assert same helper rejects current 499 and timeout growth 1. Scenario test already proves 625 churn vs 564 steady-500.
 
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 cargo test -p ardosia-loadgen --test churn
 ```
 
-Expected: FAIL because churn runner/drain reconciliation does not exist.
+- [ ] **Step 3: Implement exact reconciliation helper and server capacity**
 
-- [ ] **Step 3: Make server target use scenario-derived admission capacity**
+In `churn.rs`:
 
-Replace the benchmark target's existing fixed extra 64 with:
+```rust
+pub fn post_drain_transport_is_healthy(
+    sample: TransportMetricsReport,
+    target_clients: usize,
+    baseline_timeouts: u64,
+) -> bool {
+    sample.sessions_current == u64::try_from(target_clients).unwrap_or(u64::MAX)
+        && sample.timed_out_sessions == baseline_timeouts
+}
+```
+
+Benchmark target binding uses:
 
 ```rust
 max_connections: scenario.benchmark_max_connections(),
 ```
 
-Do not change passive `serve_until` explicit `--max-connections` behavior.
+Passive `serve_until --max-connections` is unchanged.
 
-- [ ] **Step 4: Add initial churn-ramp collection with the existing resource split**
+- [ ] **Step 4: Add churn initial ramp collection**
 
-Add `collect_churn_initial_handshakes(...)` beside the existing steady collector. It consumes `ChurnCohort::next_event()`, samples server/loadgen/host resources on the same ~1 Hz cadence, and stops only after all `scenario.clients` initial outcomes are known. Replacement outcomes never increment initial `RunCounts.successful_handshakes` or `failed_handshakes`; they belong to churn metrics.
+`collect_churn_initial_handshakes(...)` consumes `ChurnCohort::next_event()` and existing ~1 Hz process/host samplers until all initial `scenario.clients` outcomes are known. Initial outcomes alone populate `RunCounts.successful_handshakes/failed_handshakes`; replacement outcomes never alter those initial counters.
 
-- [ ] **Step 5: Add a churn-specific measured loop that samples resources/transport and executes nominal ticks**
+- [ ] **Step 5: Add measured churn loop**
 
 After initial transport convergence:
 
-1. `child.begin_measurement()`;
-2. capture `transport_start`;
-3. set global phase `Measure { deadline }`;
-4. drive churn ticks and cohort events while continuing ~1 Hz server/loadgen/host and transport sampling;
-5. execute every nominal `ChurnSchedule::due_offset(i) <= hold_seconds` tick, including tick 1499 at 60,000 ms;
-6. if a nominal tick is serviced at least one full churn period late, increment `schedule_misses` but still service it while it belongs to the configured window;
-7. when the measured deadline is reached, mark any still-unprocessed nominal ticks as missed and do not invent replacements with nominal due times beyond the window.
+```text
+child BeginMeasurement
+transport_start snapshot
+cohort Measure(deadline)
+```
 
-Keep `measured_duration_ms` anchored to the original measurement start/deadline, not drain completion.
+Drive concurrently: next churn nominal tick, cohort events, ~1 Hz server/loadgen/host sampling, periodic transport snapshots. Execute every nominal `due_offset(i) <= hold_seconds`, including tick 1499 at 60,000 ms. A tick serviced at least one full churn period late increments `schedule_misses` but is still serviced if its nominal due time belongs to the window. Any nominal ticks unprocessed when the window is closed are each marked missed and are not invented as post-window churn.
 
-- [ ] **Step 6: End measurement, drain replacements, and converge transport before final shutdown**
+Measured duration stays tied to original start/deadline.
 
-At the measured boundary:
+- [ ] **Step 6: End measurement and bounded drain**
 
-1. `child.end_measurement().await?` so server traffic lanes stop;
-2. capture `transport_end` for measured-window delta;
-3. send global `Phase::Drain` so connected clients remain alive without measured workload;
-4. continue processing cohort events until `ready_for_post_drain_verification()` or a global derived drain deadline expires;
-5. use `2 * connect_timeout_seconds` as the global worst-case drain bound from the measured deadline: one bounded planned disconnect plus one bounded replacement connect for the final tick;
-6. once loadgen population recovers, poll child snapshots up to `connect_timeout_seconds.max(2)` for telemetry-cache convergence;
-7. require `sessions_current == scenario.clients` and `timed_out_sessions == transport_start.timed_out_sessions`;
-8. retain the converged post-drain transport snapshot;
-9. send global `Phase::Shutdown` and wait for exactly `scenario.clients` final active generations to disconnect cleanly;
-10. stop/reap the child normally.
+At deadline:
 
-Measured transport `sessions_started/sessions_closed` are not required to equal churn event totals because the final nominal replacement can complete in drain.
+```text
+child EndMeasurement -> ACK
+transport_end snapshot
+cohort Drain
+```
 
-- [ ] **Step 7: Run non-heavy workspace tests**
+Continue processing cohort events until readiness or global deadline `measured_deadline + 2 * connect_timeout_seconds` (one bounded final planned disconnect + one bounded replacement connect). On loadgen recovery, poll child snapshots for up to `connect_timeout_seconds.max(2)` seconds until reconciliation helper passes. Retain that post-drain snapshot.
 
-Run:
+Then:
+
+```text
+cohort Shutdown
+wait final active generations
+child Stop/reap
+```
+
+Require final shutdown to yield exactly `scenario.clients` clean final disconnects. Measured `sessions_started/sessions_closed` are explicitly not equated to churn totals.
+
+- [ ] **Step 7: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-```
-
-Expected: PASS. Do not run canonical churn yet.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add crates/ardosia-loadgen/src/runner.rs crates/ardosia-loadgen/src/server_target.rs crates/ardosia-loadgen/tests/churn.rs
+git add crates/ardosia-loadgen/src/churn.rs crates/ardosia-loadgen/src/runner.rs crates/ardosia-loadgen/src/server_target.rs crates/ardosia-loadgen/tests/churn.rs
 git commit -m "feat: run measured churn with bounded drain"
 ```
 
 ---
 
-### Task 9: Churn Report Schema, Correctness Gates, and Terminal Summary
+### Task 10: Churn Report, Gates, and Terminal Summary
 
 **Files:**
 - Modify: `crates/ardosia-loadgen/src/report.rs`
@@ -1435,49 +1192,45 @@ git commit -m "feat: run measured churn with bounded drain"
 - Modify: `crates/ardosia-loadgen/tests/report.rs`
 
 **Interfaces:**
-- Produces: `ResultsReport::churn: Option<ChurnReport>`.
-- Produces exact serialized churn lifecycle fields from the spec.
-- Existing top-level report fields retain names/types.
+- `ResultsReport::churn: Option<ChurnReport>`.
+- Existing report fields keep names/types.
 
-- [ ] **Step 1: Write RED report/gate tests**
+- [ ] **Step 1: Write RED report tests using existing test helpers**
 
-Extend `tests/report.rs` with a passing canonical churn fixture. Passing assertions include:
+First update every existing `RunReportInput` in `tests/report.rs` with `churn: None` as the new field is introduced.
 
-```rust
-assert_eq!(report.results.churn.as_ref().unwrap().planned_disconnects, 1500);
-assert_eq!(report.results.churn.as_ref().unwrap().replacement_handshakes, 1500);
-assert_eq!(report.results.churn.as_ref().unwrap().population_end, 500);
-assert!(report.results.passed);
-```
-
-Add a steady regression:
+Add helper:
 
 ```rust
-#[test]
-fn steady_scenario_fails_if_sessions_start_or_close_inside_measured_window() {
-    let mut input = valid_input_for(&steady_500());
-    input.transport.delta.sessions_started = 1;
-    let report = RunReport::assemble(EnvironmentReport::default(), steady_500(), input);
-    assert!(!report.results.passed);
-    assert!(report.results.failure_reasons.iter().any(|r| r.contains("session churn")));
+fn churn_scenario() -> Scenario {
+    Scenario::from_str(include_str!("../../../scenarios/churn-500.toml")).unwrap()
+}
+
+fn clean_churn_counts() -> RunCounts {
+    RunCounts {
+        successful_handshakes: 500,
+        failed_handshakes: 0,
+        unexpected_disconnects: 0,
+        protocol_errors: 0,
+        send_errors: 0,
+        clean_disconnects: 500,
+    }
 }
 ```
 
-Add churn failure fixtures for `replacement_failures=1`, `schedule_misses=1`, `population_end=499`, `post_drain_transport.sessions_current=499`, and timeout growth.
+Add passing churn input with complete nonzero workload/RTT, measured transport delta with no timeout/drop failures, and churn block values 1500/1500/1500/1500, zero failures/misses, population end 500, post-drain current 500. Assert PASS.
 
-- [ ] **Step 2: Run report tests and verify RED**
+Add steady session-churn regression by constructing the same `RunReportInput` shape currently used in `steady_report_fails_on_queue_or_backpressure_drop`, set `churn: None`, then set `input.transport.delta.sessions_started = 1`; assert a failure reason containing `session churn`.
 
-Run:
+Add churn mutations for replacement failure, schedule miss, population end 499, post-drain current 499, timeout growth.
+
+- [ ] **Step 2: Run RED**
 
 ```bash
 cargo test -p ardosia-loadgen --test report
 ```
 
-Expected: FAIL because churn report/gates do not exist and steady measured-session churn is not currently gated.
-
-- [ ] **Step 3: Add exact churn report type**
-
-Define:
+- [ ] **Step 3: Add exact report type**
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1500,96 +1253,72 @@ pub struct ChurnReport {
 }
 ```
 
-Add `churn: Option<ChurnReport>` to `ResultsReport` and `RunReportInput`. Existing steady callers pass `None`; churn runner converts `ChurnRunMetrics` to `ChurnReport` and passes `Some(...)`.
+Add `churn: Option<ChurnReport>` to `ResultsReport` and `RunReportInput`. Steady callers pass `None`; churn metrics convert to Some.
 
-- [ ] **Step 4: Implement gate semantics without performance thresholds**
+- [ ] **Step 4: Implement gates exactly**
 
-For non-churn scenarios require measured-window:
+Non-churn measured window requires zero `sessions_started`, `sessions_closed`, `timed_out_sessions`.
 
-```text
-transport.delta.sessions_started == 0
-transport.delta.sessions_closed == 0
-transport.delta.timed_out_sessions == 0
-```
-
-For churn scenarios retain initial-ramp semantics in `RunCounts` and require:
+Churn requires:
 
 ```text
-planned_disconnects == floor(rate * hold_seconds)
-completed_planned_disconnects == planned_disconnects
-replacement_attempts == planned_disconnects
+planned == floor(rate * hold_seconds)
+completed_planned == planned
+replacement_attempts == planned
 replacement_handshakes == replacement_attempts
 replacement_failures == 0
 replacement_timeouts == 0
 schedule_misses == 0
 population_end == clients
-post_drain_transport.sessions_current == clients
-post_drain_transport.timed_out_sessions == transport.start.timed_out_sessions
+post_drain.sessions_current == clients
+post_drain.timed_out_sessions == transport.start.timed_out_sessions
 transport.delta.timed_out_sessions == 0
 ```
 
-Continue requiring zero unexpected disconnects, protocol errors, genuine send errors, queue/backpressure drops/disconnects, required workload traffic, RTT completion, and final `clean_disconnects == clients`.
+Both modes continue zero unexpected/protocol/genuine-send/queue-backpressure failures, configured traffic/RTT completion, and final clean disconnect count equal to `clients`.
 
-Do **not** fail solely on replacement latency, RTT percentiles, CPU/RSS, retransmits/NACKs, population minimum, or queue peaks without drops.
+CPU/RSS, RTT values, replacement latency, retransmits/NACKs, population minimum, and queue peaks without drops remain record-only. Failure reasons name category (`churn replacement`, `churn schedule`, `churn drain`, `transport timeout`).
 
-Failure strings name the category (`churn replacement`, `churn schedule`, `churn drain`, `transport timeout`) rather than a generic failure.
+- [ ] **Step 5: Terminal summary**
 
-- [ ] **Step 5: Add one compact terminal churn line**
-
-After the normal RakNet line, print when `results.churn` exists:
+When churn exists, add:
 
 ```text
 churn: planned=1500 replaced=1500 failed=0 pop_min=<n> pop_end=500 repl_p95=<x>ms
 ```
 
-Use existing `fmt_ms` for replacement p95.
+Use existing `fmt_ms`.
 
-- [ ] **Step 6: Run report + workspace tests and commit**
-
-Run:
+- [ ] **Step 6: GREEN and commit**
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p ardosia-loadgen --test report --test churn
 cargo test --workspace
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
 git add crates/ardosia-loadgen/src/report.rs crates/ardosia-loadgen/src/churn.rs crates/ardosia-loadgen/src/runner.rs crates/ardosia-loadgen/src/main.rs crates/ardosia-loadgen/tests/report.rs
 git commit -m "feat: report churn lifecycle health"
 ```
 
 ---
 
-### Task 10: Manual Workflow, Documentation, and Full Non-Heavy Verification
+### Task 11: Manual Workflow, Docs, and Full Non-Heavy Verification
 
 **Files:**
 - Modify: `.github/workflows/baseline.yml`
 - Modify: `docs/benchmarks.md`
 - Modify: `crates/ardosia-loadgen/tests/scenario.rs`
 
-**Interfaces:**
-- Manual benchmark selector gains `churn-500` only.
-- Profiling remains local/manual and is never added to GitHub Actions.
-- Docs provide one-command profiling and churn invocations.
-
-- [ ] **Step 1: Add `churn-500` to the existing manual benchmark choices**
-
-Add exactly one option:
+- [ ] **Step 1: Add only `churn-500` to manual choices**
 
 ```yaml
           - churn-500
 ```
 
-Do not add `push`, `pull_request`, `schedule`, or any profiling job/step.
+No profile job/step and no automatic trigger.
 
-- [ ] **Step 2: Update benchmark documentation**
+- [ ] **Step 2: Document exact local commands**
 
-Add profiling command:
+Profiling:
 
 ```bash
 cargo run --profile profiling -p ardosia-loadgen -- \
@@ -1597,30 +1326,28 @@ cargo run --profile profiling -p ardosia-loadgen -- \
   --output profiles/steady-1000
 ```
 
-Document required tools, automatic server-PID attachment, default `profiles/<scenario>/<run-id>/` layout, steady-window-only capture, and that host perf security policy is never changed automatically.
+Document tools, automatic PID, default `profiles/<scenario>/<run-id>/`, steady-only capture, no automatic kernel policy changes.
 
-Add churn command:
+Churn:
 
 ```bash
 cargo run --release -p ardosia-loadgen -- \
   local scenarios/churn-500.toml > churn-500.json
 ```
 
-Document 500 target clients, 25 replacements/sec, 1500 nominal replacements, 625 temporary transport admission capacity, measured-window vs drain semantics, and correctness-gated vs record-only churn fields.
+Document 500 target, 25/s, 1500 planned, 625 temporary admission cap, measured vs drain semantics, correctness vs record-only metrics.
 
-- [ ] **Step 3: Verify workflow policy with a deterministic script**
-
-Run:
+- [ ] **Step 3: Verify workflow policy deterministically**
 
 ```bash
 python - <<'PY'
 from pathlib import Path
-text = Path('.github/workflows/baseline.yml').read_text()
-assert '          - churn-500\n' in text
-assert '\npush:' not in text
-assert '\npull_request:' not in text
-assert '\nschedule:' not in text
-assert ' profile ' not in text.lower()
+baseline = Path('.github/workflows/baseline.yml').read_text()
+assert '          - churn-500\n' in baseline
+assert '\npush:' not in baseline
+assert '\npull_request:' not in baseline
+assert '\nschedule:' not in baseline
+assert 'profiling' not in baseline.lower()
 ci = Path('.github/workflows/ci.yml').read_text()
 assert 'workflow_dispatch:' in ci
 assert '\npush:' not in ci
@@ -1629,11 +1356,7 @@ assert '\nschedule:' not in ci
 PY
 ```
 
-Expected: exit 0.
-
-- [ ] **Step 4: Run the full non-heavy quality gate**
-
-Run:
+- [ ] **Step 4: Full non-heavy gate**
 
 ```bash
 cargo fmt --all -- --check
@@ -1642,9 +1365,7 @@ cargo test --workspace
 cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
 ```
 
-Expected: all PASS.
-
-If local execution is unavailable and a temporary GitHub Actions trigger is used for focused RED/GREEN evidence, restore `.github/workflows/ci.yml` to `workflow_dispatch` only immediately after the run. Never run profiling or canonical churn automatically.
+If a temporary Actions trigger is required for focused RED/GREEN evidence, restore `ci.yml` to `workflow_dispatch` immediately. Never run profiling/canonical churn automatically.
 
 - [ ] **Step 5: Commit**
 
@@ -1655,28 +1376,20 @@ git commit -m "docs: add profiling and churn workflows"
 
 ---
 
-### Task 11: Manual `churn-500` Evidence and Phase Completion
+### Task 12: Manual `churn-500` Evidence and Phase Completion
 
 **Files:**
-- Create after successful run: `docs/results/2026-08-18-churn-500.md`
-- No vendor patch or optimization in this task unless a separate diagnosed change is explicitly approved.
+- Create after run: `docs/results/2026-08-18-churn-500.md`
+- No vendor/optimization change unless separately diagnosed and approved.
 
-**Interfaces:**
-- Consumes canonical `scenarios/churn-500.toml` and completed report/gates.
-- Produces the first trusted churn characterization evidence.
-
-- [ ] **Step 1: Run canonical churn locally in release mode**
-
-Run on the same controlled host used for prior baselines:
+- [ ] **Step 1: Run canonical churn**
 
 ```bash
 cargo run --release -p ardosia-loadgen -- \
   local scenarios/churn-500.toml > churn-500.json
 ```
 
-- [ ] **Step 2: Check strict lifecycle correctness before performance interpretation**
-
-Require:
+- [ ] **Step 2: Require strict lifecycle correctness first**
 
 ```text
 initial sessions: 500/500
@@ -1698,40 +1411,22 @@ final clean_disconnects: 500
 result: PASS
 ```
 
-If any item fails, stop scaling and use systematic debugging on that concrete failure; do not optimize from the profile or patch vendor as a reflex.
+Any failure -> systematic debugging on that concrete signal; no reflexive scaling/vendor patch.
 
-- [ ] **Step 3: Characterize record-only churn behavior**
+- [ ] **Step 3: Characterize record-only behavior vs trusted `steady-500`**
 
-Compare against trusted `steady-500` on the same host:
+Compare server/loadgen/host CPU, RSS, RTT, replacement latency p50/p95/p99/max, population minimum, replacement in-flight peak, traffic rates, retransmits/NACKs, queue peaks, measured session start/close deltas, post-drain state. Do not invent thresholds from one run.
 
-- server/loadgen/host CPU average/peak;
-- server/loadgen RSS;
-- RTT p50/p95/p99/max;
-- replacement handshake p50/p95/p99/max;
-- population minimum;
-- replacement in-flight peak;
-- measured traffic rates;
-- retransmits/NACKs;
-- queue peaks;
-- measured-window session start/close deltas;
-- post-drain lifetime/current session state.
+- [ ] **Step 4: Record result**
 
-Do not invent pass/fail thresholds from one run.
-
-- [ ] **Step 4: Write and commit the churn result note**
-
-Create `docs/results/2026-08-18-churn-500.md` containing environment/commit, scenario, strict correctness result, lifecycle counts, replacement latency, population behavior, transport telemetry, resources, and comparison to `steady-500`.
-
-Commit:
+`docs/results/2026-08-18-churn-500.md` contains environment/commit, scenario, strict result, lifecycle counts, replacement latency, population, transport, resources, and steady-500 comparison.
 
 ```bash
 git add docs/results/2026-08-18-churn-500.md
 git commit -m "docs: record churn-500 baseline"
 ```
 
-- [ ] **Step 5: Final verification before claiming the slice complete**
-
-Run:
+- [ ] **Step 5: Verification before completion claim**
 
 ```bash
 cargo fmt --all -- --check
@@ -1741,4 +1436,4 @@ cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
 git status --short
 ```
 
-Expected: quality gates PASS; only intentionally ignored local profile/result artifacts remain; no unexplained vendor changes; heavy workflows remain manual-only.
+Expected: all quality gates PASS; generated profile/results artifacts are intentionally ignored/untracked; no unexplained vendor change; heavy workflows manual-only.
