@@ -45,10 +45,10 @@ impl ProfileTools {
         if !cfg!(target_os = "linux") {
             return Err(ProfileError::UnsupportedPlatform);
         }
-        let perf_output = validate_tool("perf", &self.perf).await?;
-        validate_tool("inferno-collapse-perf", &self.collapse_perf).await?;
-        validate_tool("inferno-flamegraph", &self.flamegraph).await?;
-        validate_tool("mkfifo", &self.mkfifo).await?;
+        let perf_output = validate_tool("perf", &self.perf, "--version").await?;
+        validate_tool("inferno-collapse-perf", &self.collapse_perf, "--help").await?;
+        validate_tool("inferno-flamegraph", &self.flamegraph, "--help").await?;
+        validate_tool("mkfifo", &self.mkfifo, "--version").await?;
 
         let version = String::from_utf8_lossy(&perf_output.stdout)
             .lines()
@@ -149,9 +149,13 @@ impl ProfileTools {
     }
 }
 
-async fn validate_tool(tool: &str, path: &Path) -> Result<std::process::Output, ProfileError> {
+async fn validate_tool(
+    tool: &str,
+    path: &Path,
+    probe_arg: &str,
+) -> Result<std::process::Output, ProfileError> {
     let output = Command::new(path)
-        .arg("--version")
+        .arg(probe_arg)
         .output()
         .await
         .map_err(|error| ProfileError::MissingTool {
