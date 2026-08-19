@@ -7,9 +7,7 @@ use raknet_rust::low_level::protocol::Reliability as VendorReliability;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep, sleep_until, timeout};
 
-use crate::churn::{
-    DisconnectCounts, DisconnectIntent, DisconnectOutcome, classify_disconnect,
-};
+use crate::churn::{DisconnectCounts, DisconnectIntent, DisconnectOutcome, classify_disconnect};
 use crate::frame::{BenchmarkFrame, FrameKind};
 use crate::latency::LatencyHistogram;
 use crate::scenario::{Scenario, TrafficKind};
@@ -639,9 +637,7 @@ fn apply_disconnect_counts(result: &mut ClientTaskResult, counts: DisconnectCoun
         .saturating_add(counts.unexpected_disconnects);
 }
 
-fn planned_disconnect_requested(
-    directive_rx: &watch::Receiver<GenerationDirective>,
-) -> bool {
+fn planned_disconnect_requested(directive_rx: &watch::Receiver<GenerationDirective>) -> bool {
     *directive_rx.borrow() == GenerationDirective::PlannedDisconnect
 }
 
@@ -684,9 +680,7 @@ impl OutcomeSink {
                 let _ = tx.send(ConnectOutcome::Ready).await;
             }
             Self::Generation(tx) => {
-                let _ = tx
-                    .send(GenerationConnectOutcome::Ready { client_id })
-                    .await;
+                let _ = tx.send(GenerationConnectOutcome::Ready { client_id }).await;
             }
         }
     }
