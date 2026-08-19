@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use ardosia_loadgen::churn::{ChurnRunMetrics, ChurnSchedule, ClientIdAllocator, SlotSelector};
+use ardosia_loadgen::churn::{
+    ChurnRunMetrics, ChurnSchedule, ClientIdAllocator, SlotSelector,
+    post_drain_transport_is_healthy,
+};
+use ardosia_loadgen::report::TransportMetricsReport;
 
 #[test]
 fn canonical_schedule_has_deadline_inclusive_1500_ticks() {
@@ -84,4 +88,28 @@ fn schedule_miss_is_accounted_without_changing_population() {
 
     assert_eq!(metrics.schedule_misses(), 1);
     assert_eq!(metrics.population_current(), 500);
+}
+
+#[test]
+fn post_drain_population_accepts_lifecycle_totals_but_requires_target_current() {
+    let healthy = TransportMetricsReport {
+        sessions_current: 500,
+        sessions_started_total: 2000,
+        sessions_closed_total: 1500,
+        timed_out_sessions: 0,
+        ..TransportMetricsReport::default()
+    };
+    assert!(post_drain_transport_is_healthy(healthy.clone(), 500, 0));
+
+    let deficit = TransportMetricsReport {
+        sessions_current: 499,
+        ..healthy.clone()
+    };
+    assert!(!post_drain_transport_is_healthy(deficit, 500, 0));
+
+    let timeout_growth = TransportMetricsReport {
+        timed_out_sessions: 1,
+        ..healthy
+    };
+    assert!(!post_drain_transport_is_healthy(timeout_growth, 500, 0));
 }
