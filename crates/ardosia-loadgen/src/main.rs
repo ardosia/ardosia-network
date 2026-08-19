@@ -5,7 +5,7 @@ use ardosia_loadgen::child_protocol::run_stdio_child;
 use ardosia_loadgen::cli::{Cli, Command};
 use ardosia_loadgen::report::RunReport;
 use ardosia_loadgen::resource::ResourceSummary;
-use ardosia_loadgen::runner::{run_clients, run_local, serve_until};
+use ardosia_loadgen::runner::{run_clients, run_local, run_profile, serve_until};
 use ardosia_loadgen::scenario::Scenario;
 use clap::Parser;
 use tokio::sync::watch;
@@ -20,12 +20,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let report = run_local(bind, &scenario).await?;
             emit_report(&report)?;
         }
-        Command::Profile { .. } => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "profile command is not wired yet",
-            )
-            .into());
+        Command::Profile {
+            scenario,
+            bind,
+            output,
+        } => {
+            let loaded = load_scenario(&scenario)?;
+            let profile = run_profile(bind, &scenario, &loaded, output.as_deref()).await?;
+            eprintln!("profile: {}", profile.output_dir.display());
+            emit_report(&profile.report)?;
         }
         Command::Run { scenario, target } => {
             let scenario = load_scenario(&scenario)?;
