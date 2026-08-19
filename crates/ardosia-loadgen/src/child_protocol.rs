@@ -18,6 +18,7 @@ pub enum ChildCommand {
         scenario: Scenario,
     },
     BeginMeasurement,
+    EndMeasurement,
     Snapshot,
     Stop,
 }
@@ -30,6 +31,7 @@ pub enum ChildCommand {
 pub enum ChildEvent {
     Ready { pid: u32 },
     MeasurementStarted,
+    MeasurementEnded,
     Snapshot { metrics: TransportMetricsReport },
     Stopped { report: Box<ServerRunReport> },
     Error { message: String },
@@ -135,6 +137,20 @@ where
                 };
                 handle.begin_measurement();
                 write_event(&mut writer, &ChildEvent::MeasurementStarted).await?;
+            }
+            ChildCommand::EndMeasurement => {
+                let Some(handle) = server.as_ref() else {
+                    write_event(
+                        &mut writer,
+                        &ChildEvent::Error {
+                            message: "server has not started".into(),
+                        },
+                    )
+                    .await?;
+                    continue;
+                };
+                handle.end_measurement();
+                write_event(&mut writer, &ChildEvent::MeasurementEnded).await?;
             }
             ChildCommand::Snapshot => {
                 let Some(handle) = server.as_ref() else {
