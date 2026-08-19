@@ -22,6 +22,7 @@ fn phase1_connect_scenario_keeps_backward_compatible_defaults() {
     assert_eq!(scenario.seed, 1);
     assert!(scenario.traffic.is_empty());
     assert!(scenario.rtt.is_none());
+    assert!(scenario.churn.is_none());
 }
 
 #[test]
@@ -37,6 +38,18 @@ fn checked_in_scaling_scenarios_parse_and_match_expected_shapes() {
 
     let steady_1000 = load_checked_in("steady-1000.toml");
     assert_scaling_shape(&steady_1000, 1000, 20, 20.0, 2.0, 0.2, 2.0);
+}
+
+#[test]
+fn checked_in_churn_scenario_derives_canonical_admission_headroom() {
+    let scenario = load_checked_in("churn-500.toml");
+    assert_scaling_shape(&scenario, 500, 10, 20.0, 2.0, 0.2, 2.0);
+    assert_eq!(
+        scenario.churn.as_ref().unwrap().replacements_per_second,
+        25.0
+    );
+    assert_eq!(scenario.churn_admission_headroom(), 125);
+    assert_eq!(scenario.benchmark_max_connections(), 625);
 }
 
 #[test]
@@ -144,6 +157,15 @@ fn rejects_invalid_rtt_rates_and_payloads() {
     let input = format!("{BASE}\n[rtt]\nprobes_per_second_per_client = 1.0\npayload_bytes = 0\n");
     let error = Scenario::from_str(&input).unwrap_err();
     assert!(error.to_string().contains("payload_bytes"));
+}
+
+#[test]
+fn rejects_invalid_churn_rates() {
+    for rate in ["0.0", "-1.0", "inf", "nan"] {
+        let input = format!("{BASE}\n[churn]\nreplacements_per_second = {rate}\n");
+        let error = Scenario::from_str(&input).unwrap_err();
+        assert!(error.to_string().contains("replacements_per_second"));
+    }
 }
 
 fn load_checked_in(name: &str) -> Scenario {
