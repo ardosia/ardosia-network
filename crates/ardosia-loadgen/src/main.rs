@@ -2,6 +2,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ardosia_loadgen::child_protocol::run_stdio_child;
+use ardosia_loadgen::churn_runner::run_local_churn;
 use ardosia_loadgen::cli::{Cli, Command};
 use ardosia_loadgen::report::RunReport;
 use ardosia_loadgen::resource::ResourceSummary;
@@ -17,7 +18,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Command::Local { scenario, bind } => {
             let scenario = load_scenario(&scenario)?;
-            let report = run_local(bind, &scenario).await?;
+            let report = if scenario.churn.is_some() {
+                run_local_churn(bind, &scenario).await?
+            } else {
+                run_local(bind, &scenario).await?
+            };
             emit_report(&report)?;
         }
         Command::Profile {
