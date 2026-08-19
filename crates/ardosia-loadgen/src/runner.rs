@@ -79,6 +79,8 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
         )
         .await;
         measured_duration_ms = millis(measured_started.elapsed());
+        cohort.drain();
+        cohort.shutdown();
     } else {
         cohort.abort();
         measured_duration_ms = 0;
@@ -230,14 +232,27 @@ pub async fn run_local(
     }
 
     let measured_duration_ms = millis(measured_started.elapsed());
-    let aggregate = cohort.finish().await;
+    cohort.drain();
+
+    if let Err(error) = child.end_measurement().await {
+        cohort.abort();
+        let _ = cohort.finish().await;
+        child.abort().await;
+        return Err(error);
+    }
+
     let transport_end = match child.snapshot().await {
         Ok(snapshot) => snapshot,
         Err(error) => {
+            cohort.abort();
+            let _ = cohort.finish().await;
             child.abort().await;
             return Err(error);
         }
     };
+
+    cohort.shutdown();
+    let aggregate = cohort.finish().await;
 
     let server_report = match child.stop().await {
         Ok(report) => report,
@@ -325,6 +340,14 @@ impl ClientCohort {
 
     fn measure(&self, deadline: Instant) {
         let _ = self.phase_tx.send(Phase::Measure { deadline });
+    }
+
+    fn drain(&self) {
+        let _ = self.phase_tx.send(Phase::Drain);
+    }
+
+    fn shutdown(&self) {
+        let _ = self.phase_tx.send(Phase::Shutdown);
     }
 
     fn abort(&self) {
@@ -613,6 +636,17 @@ impl ChildTarget {
             ChildEvent::Error { message } => Err(RunnerError::ChildProtocol(message)),
             other => Err(RunnerError::ChildProtocol(format!(
                 "expected measurement_started event, got {other:?}"
+            ))),
+        }
+    }
+
+    async fn end_measurement(&mut self) -> Result<(), RunnerError> {
+        self.send(&ChildCommand::EndMeasurement).await?;
+        match self.recv().await? {
+            ChildEvent::MeasurementEnded => Ok(()),
+            ChildEvent::Error { message } => Err(RunnerError::ChildProtocol(message)),
+            other => Err(RunnerError::ChildProtocol(format!(
+                "expected measurement_ended event, got {other:?}"
             ))),
         }
     }
