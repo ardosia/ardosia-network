@@ -378,7 +378,7 @@ Multiple replacement handshakes may therefore be in flight at once. This is expe
 
 A planned churn disconnect must not increment `unexpected_disconnects` merely because the benchmark intentionally asked that client to leave.
 
-## Deterministic Selection
+## Deterministic Selection and Tick Count
 
 The scheduler must be reproducible for a given scenario seed.
 
@@ -389,7 +389,9 @@ A simple deterministic round-robin over currently active logical slots is prefer
 - reproducible scheduling;
 - no dependence on hash-map iteration order.
 
-The churn rate uses the same deterministic scheduling philosophy as existing traffic lanes. Over a 60-second 25/sec canonical run, the scheduler must plan exactly 1500 replacements unless the benchmark fails first.
+The churn plan is derived up front from the configured rate and measured-window duration. The first nominal replacement is scheduled one full churn period after the measured boundary. For canonical 25/sec churn, nominal due times are 40 ms, 80 ms, and so on through 60,000 ms. The deadline is inclusive for the final planned churn tick, so exactly `floor(replacements_per_second * hold_seconds)` ticks are planned: 1500 for 25/sec over 60 seconds.
+
+A replacement triggered by the final nominal tick may complete during the bounded drain after the measured window. This is expected and is why lifecycle totals are reconciled after drain rather than requiring every transport start/close counter to land inside the measured-window delta.
 
 If the runtime cannot keep up with the configured schedule, that condition must be surfaced as churn scheduling/backlog failure rather than silently reducing the realized replacement rate.
 
@@ -475,7 +477,8 @@ The report adds a dedicated optional churn result block. At minimum it contains:
 - replacement handshake latency p50;
 - replacement handshake latency p95;
 - replacement handshake latency p99;
-- replacement handshake latency max.
+- replacement handshake latency max;
+- a post-drain transport snapshot or equivalent reconciled transport state used to verify lifecycle cleanup.
 
 Replacement latency is measured on the loadgen's monotonic clock from replacement connection attempt start until successful RakNet handshake completion. No cross-process clock comparison is used.
 
@@ -515,16 +518,17 @@ A churn run extends the existing phase model:
 3. telemetry convergence;
 4. measured churn window;
 5. replacement drain/recovery;
-6. final steady population verification;
+6. final steady population and transport verification;
 7. global clean disconnect and server shutdown.
 
 The measured window is still exactly `hold_seconds` for workload/resource/RTT rate calculations.
 
 At the measured deadline:
 
-- no new churn replacement ticks are scheduled;
+- no churn tick beyond the precomputed deadline-inclusive plan is scheduled;
 - replacements already required by planned disconnects are allowed a bounded drain up to their existing connection timeout/deadline;
 - final population must recover to the target;
+- transport telemetry is allowed a bounded convergence period and a post-drain snapshot is captured;
 - then all active final-generation clients disconnect cleanly.
 
 The drain must be bounded. The harness must not wait indefinitely for a broken replacement.
@@ -560,6 +564,7 @@ Required churn conditions:
 - no churn schedule/backlog misses remain hidden;
 - all in-flight replacements drain within the bounded recovery phase;
 - population returns to exactly 500 before final shutdown;
+- post-drain transport state converges to exactly 500 current sessions with no timeout/leaked-session evidence before final global disconnect;
 - zero unexpected disconnects;
 - zero benchmark protocol errors;
 - zero genuine benchmark send errors;
@@ -585,15 +590,19 @@ Failure reasons must say whether the cause is initial ramp, planned disconnect, 
 
 Unlike steady scenarios, session start/close deltas are expected to be nonzero during the measured window.
 
-The transport report must therefore be interpreted differently for churn:
+The existing steady-window transport start/end/delta report remains anchored to the measured window. It is useful for understanding lifecycle pressure that actually landed inside those 60 seconds, but it is **not** required to equal the final churn lifecycle totals. A replacement planned at or near the deadline can complete during drain, after the measured end snapshot.
 
-- `sessions_started` should reflect successful replacements;
-- `sessions_closed` should reflect planned churn exits, subject to transport metric timing;
-- `sessions_current` should return to target after drain;
-- timeouts remain unexpected;
-- queue/backpressure/order/split counters retain their existing meanings.
+Churn therefore also captures a post-drain transport snapshot after population recovery and bounded metric-cache convergence. Reconciliation uses both views:
 
-The harness must not reuse the steady-scenario assertion that `sessions_started` and `sessions_closed` deltas are zero.
+- measured-window `sessions_started`/`sessions_closed`: lifecycle work observed inside the measured interval;
+- churn counters: authoritative planned/replacement lifecycle counts from event-level orchestration;
+- post-drain transport snapshot: server-side evidence that session state returned to the target before final global shutdown.
+
+The harness must not assert that measured-window `sessions_started == replacement_handshakes` or that measured-window `sessions_closed == planned_disconnects`.
+
+The final post-drain state must show `sessions_current == scenario.clients`, no transport timeout growth attributable to churn, and no evidence of unbounded stale-session accumulation. Start/close lifetime totals may be compared against expected lifecycle counts after cache convergence as diagnostic evidence, while event-level churn counters remain the primary exact accounting.
+
+Queue/backpressure/order/split counters retain their existing meanings.
 
 Metric-cache convergence still matters at the initial ramp boundary and final drain boundary. Final verification should allow the bounded telemetry cache to catch up before declaring a lifecycle leak, using the same principle as the existing pre-steady convergence fix.
 
@@ -673,7 +682,7 @@ Tests should cover:
 - parsing and validation of optional `[churn]`;
 - backward compatibility of all existing scenarios;
 - canonical `churn-500` checked-in shape;
-- deterministic exact tick count for 25/sec over 60 seconds;
+- deterministic exact tick count for 25/sec over 60 seconds, including the deadline-inclusive final planned tick;
 - deterministic slot selection;
 - monotonically unique client ID allocation across replacements;
 - planned disconnect not counted as unexpected;
@@ -683,6 +692,7 @@ Tests should cover:
 - scheduler backlog/miss behavior;
 - derived admission headroom calculation;
 - bounded drain completion and failure;
+- measured-window versus post-drain transport reconciliation;
 - churn-specific pass/fail report semantics;
 - existing steady scenarios still require zero measured-window session churn.
 
