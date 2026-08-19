@@ -189,7 +189,8 @@ async fn run_measurement(
                     result.unexpected_disconnects += 1;
                     return;
                 }
-                match *phase_rx.borrow() {
+                let phase = *phase_rx.borrow();
+                match phase {
                     Phase::Abort | Phase::Shutdown => {
                         finish_client(client, result).await;
                         return;
@@ -226,7 +227,8 @@ async fn wait_post_measurement(
     result: &mut ClientTaskResult,
 ) {
     loop {
-        match *phase_rx.borrow() {
+        let phase = *phase_rx.borrow();
+        match phase {
             Phase::Abort | Phase::Shutdown => {
                 finish_client(client, result).await;
                 return;
