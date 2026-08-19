@@ -21,6 +21,8 @@ const PENDING_PROBE_CAPACITY: usize = 256;
 pub(crate) enum Phase {
     Ramp,
     Measure { deadline: Instant },
+    Drain,
+    Shutdown,
     Abort,
 }
 
@@ -77,8 +79,12 @@ pub(crate) async fn run_client_task(
     loop {
         let phase = *phase_rx.borrow();
         match phase {
-            Phase::Abort => {
+            Phase::Abort | Phase::Shutdown => {
                 finish_client(&mut client, &mut result).await;
+                return result;
+            }
+            Phase::Drain => {
+                wait_post_measurement(&mut client, &mut phase_rx, &mut result).await;
                 return result;
             }
             Phase::Ramp => {
@@ -163,7 +169,7 @@ async fn run_measurement(
 
     loop {
         if Instant::now() >= deadline {
-            finish_client(client, result).await;
+            wait_post_measurement(client, phase_rx, result).await;
             return;
         }
 
@@ -175,7 +181,7 @@ async fn run_measurement(
 
         tokio::select! {
             _ = sleep_until(deadline) => {
-                finish_client(client, result).await;
+                wait_post_measurement(client, phase_rx, result).await;
                 return;
             }
             changed = phase_rx.changed() => {
@@ -183,9 +189,16 @@ async fn run_measurement(
                     result.unexpected_disconnects += 1;
                     return;
                 }
-                if matches!(*phase_rx.borrow(), Phase::Abort) {
-                    finish_client(client, result).await;
-                    return;
+                match *phase_rx.borrow() {
+                    Phase::Abort | Phase::Shutdown => {
+                        finish_client(client, result).await;
+                        return;
+                    }
+                    Phase::Drain => {
+                        wait_post_measurement(client, phase_rx, result).await;
+                        return;
+                    }
+                    Phase::Ramp | Phase::Measure { .. } => {}
                 }
             }
             event = client.next_event() => {
@@ -201,6 +214,44 @@ async fn run_measurement(
                 {
                     send_rtt_probe(client, client_id, lane, &mut pending, result).await;
                     lane.advance(now);
+                }
+            }
+        }
+    }
+}
+
+async fn wait_post_measurement(
+    client: &mut RaknetClient,
+    phase_rx: &mut watch::Receiver<Phase>,
+    result: &mut ClientTaskResult,
+) {
+    loop {
+        match *phase_rx.borrow() {
+            Phase::Abort | Phase::Shutdown => {
+                finish_client(client, result).await;
+                return;
+            }
+            Phase::Ramp | Phase::Measure { .. } | Phase::Drain => {}
+        }
+
+        tokio::select! {
+            changed = phase_rx.changed() => {
+                if changed.is_err() {
+                    result.unexpected_disconnects += 1;
+                    return;
+                }
+            }
+            event = client.next_event() => {
+                match event {
+                    Some(RaknetClientEvent::Packet { .. }) => {}
+                    Some(RaknetClientEvent::DecodeError { .. }) => {
+                        result.protocol_errors += 1;
+                    }
+                    Some(RaknetClientEvent::Disconnected { .. }) | None => {
+                        result.unexpected_disconnects += 1;
+                        return;
+                    }
+                    Some(_) => {}
                 }
             }
         }
