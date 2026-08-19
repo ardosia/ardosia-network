@@ -17,8 +17,8 @@ use crate::client_task::{ClientTaskResult, ConnectOutcome, Phase, run_client_tas
 use crate::environment::collect_environment;
 use crate::latency::LatencyHistogram;
 use crate::profiling::{
-    PerfCaptureSummary, PerfSession, ProfileArtifacts, ProfileConfig, ProfileError, ProfileMetadata,
-    ProfileRun, ProfileTools, resolve_run_dir,
+    PerfCaptureSummary, PerfSession, ProfileArtifacts, ProfileConfig, ProfileError,
+    ProfileMetadata, ProfileRun, ProfileTools, resolve_run_dir,
 };
 use crate::report::{
     ResourceWindowsReport, RunCounts, RunReport, RunReportInput, TransportMetricsReport,
