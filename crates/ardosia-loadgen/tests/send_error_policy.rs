@@ -7,5 +7,7 @@ fn connection_closed_at_teardown_is_not_a_benchmark_send_error() {
         &NetworkError::ConnectionClosed
     ));
     assert!(counts_as_benchmark_send_error(&NetworkError::Backpressure));
-    assert!(counts_as_benchmark_send_error(&NetworkError::BackendStopped));
+    assert!(counts_as_benchmark_send_error(
+        &NetworkError::BackendStopped
+    ));
 }
