@@ -1,46 +1,14 @@
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use ardosia_loadgen::child_protocol::run_stdio_child;
+use ardosia_loadgen::cli::{Cli, Command};
 use ardosia_loadgen::report::RunReport;
 use ardosia_loadgen::resource::ResourceSummary;
 use ardosia_loadgen::runner::{run_clients, run_local, serve_until};
 use ardosia_loadgen::scenario::Scenario;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use tokio::sync::watch;
-
-#[derive(Debug, Parser)]
-#[command(name = "ardosia-loadgen")]
-#[command(about = "RakNet transport load generator for Ardosia")]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Debug, Subcommand)]
-enum Command {
-    Local {
-        scenario: PathBuf,
-        #[arg(long, default_value = "127.0.0.1:19132")]
-        bind: SocketAddr,
-    },
-    Run {
-        scenario: PathBuf,
-        #[arg(long)]
-        target: SocketAddr,
-    },
-    Serve {
-        #[arg(long, default_value = "0.0.0.0:19132")]
-        bind: SocketAddr,
-        #[arg(long, default_value_t = 8)]
-        protocol: u8,
-        #[arg(long, default_value_t = 1024)]
-        max_connections: usize,
-    },
-    #[command(hide = true)]
-    ServeChild,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,6 +19,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scenario = load_scenario(&scenario)?;
             let report = run_local(bind, &scenario).await?;
             emit_report(&report)?;
+        }
+        Command::Profile { .. } => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "profile command is not wired yet",
+            )
+            .into());
         }
         Command::Run { scenario, target } => {
             let scenario = load_scenario(&scenario)?;
