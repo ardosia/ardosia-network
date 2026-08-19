@@ -153,7 +153,9 @@ where
                 "perf ack fifo closed while waiting for {command}"
             )));
         }
-        if line.trim() != "ack" {
+
+        let ack = line.trim_matches(|ch: char| ch == '\0' || ch.is_whitespace());
+        if ack != "ack" {
             return Err(ProfileError::Control(format!(
                 "unexpected perf ack for {command}: {:?}",
                 line.trim()
