@@ -10,4 +10,5 @@ pub mod report;
 pub mod resource;
 pub mod runner;
 pub mod scenario;
+pub mod send_policy;
 pub mod workload;
