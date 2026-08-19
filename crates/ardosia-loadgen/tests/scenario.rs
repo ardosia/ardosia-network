@@ -34,6 +34,9 @@ fn checked_in_scaling_scenarios_parse_and_match_expected_shapes() {
 
     let ceiling_1000 = load_checked_in("ceiling-1000.toml");
     assert_scaling_shape(&ceiling_1000, 1000, 20, 10.0, 1.0, 0.1, 1.0);
+
+    let steady_1000 = load_checked_in("steady-1000.toml");
+    assert_scaling_shape(&steady_1000, 1000, 20, 20.0, 2.0, 0.2, 2.0);
 }
 
 #[test]
