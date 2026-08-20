@@ -130,24 +130,26 @@ fn report(scenario: Scenario, counts: RunCounts, workload: WorkloadCounts) -> Ru
 }
 
 fn passing_churn_input() -> RunReportInput {
-    let mut transport = TransportWindowReport::default();
-    transport.start = TransportMetricsReport {
-        sessions_current: 500,
-        timed_out_sessions: 0,
-        ..TransportMetricsReport::default()
-    };
-    transport.end = TransportMetricsReport {
-        sessions_current: 500,
-        sessions_started_total: 1_999,
-        sessions_closed_total: 1_499,
-        timed_out_sessions: 0,
-        ..TransportMetricsReport::default()
-    };
-    transport.delta = TransportCounterReport {
-        sessions_started: 1_499,
-        sessions_closed: 1_499,
-        timed_out_sessions: 0,
-        ..TransportCounterReport::default()
+    let transport = TransportWindowReport {
+        start: TransportMetricsReport {
+            sessions_current: 500,
+            timed_out_sessions: 0,
+            ..TransportMetricsReport::default()
+        },
+        end: TransportMetricsReport {
+            sessions_current: 500,
+            sessions_started_total: 1_999,
+            sessions_closed_total: 1_499,
+            timed_out_sessions: 0,
+            ..TransportMetricsReport::default()
+        },
+        delta: TransportCounterReport {
+            sessions_started: 1_499,
+            sessions_closed: 1_499,
+            timed_out_sessions: 0,
+            ..TransportCounterReport::default()
+        },
+        ..TransportWindowReport::default()
     };
 
     RunReportInput {
