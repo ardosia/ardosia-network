@@ -333,6 +333,9 @@ struct Slot {
     replacement_started: Option<Instant>,
 }
 
+// ChurnEvent is an ephemeral dispatch value. ClientTaskResult already crosses result_rx by value,
+// so boxing only this enum variant would add a heap allocation without shrinking the channel payload.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum ChurnEvent {
     Connect(GenerationConnectOutcome),
     Finished(ClientTaskResult),
