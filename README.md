@@ -2,104 +2,123 @@
 
 Transport-only networking for Ardosia.
 
-This repository owns UDP and RakNet transport. Minecraft/MCPE game packet definitions, codecs, login flow, and version-specific game protocol behavior belong in `ardosia-protocol`, not here.
+`ardosia-network` owns UDP and RakNet transport. Minecraft: Pocket Edition packet definitions, codecs, login flow, and version-specific game protocol behavior belong in `ardosia-protocol`, not here.
 
-## Current baseline
+## Status
 
-- Rust 1.88+
-- Vendored `mcbe-rs/raknet-rust` 0.2.0
-- Upstream revision: `3edfb4170e6cb5aeed992b09b50176fb7e5b6079`
-- RakNet protocol version is runtime-configurable
-- MCPE 0.15.10 target uses RakNet protocol `8`
-- Public transport payloads are opaque `bytes::Bytes`
-- Public Ardosia APIs do not expose `raknet-rust` types
-- Ardosia-owned queues are bounded
+Ardosia currently targets the historical Minecraft: Pocket Edition 0.15.10 stack:
 
-The upstream source itself remains behaviorally unchanged. See `vendor/raknet-rust/UPSTREAM.md` for provenance and the Rust toolchain compatibility note.
+- MCPE game protocol: `84`
+- RakNet protocol: `8`
+- Rust: `1.88+`
+- vendored RakNet implementation: `mcbe-rs/raknet-rust` `0.2.0`
+- pinned upstream revision: `3edfb4170e6cb5aeed992b09b50176fb7e5b6079`
 
-## Layout
+RakNet protocol selection is runtime-configurable. Protocol `8` is configured by Ardosia rather than patched into the vendored source.
+
+This repository is pre-release. Current benchmark evidence is intended for correctness and performance characterization, not as a production capacity guarantee.
+
+## Architectural boundary
+
+The public transport surface deals in connections and opaque bytes:
 
 ```text
-crates/ardosia-network/   public transport facade
-crates/ardosia-loadgen/   protocol-8 load generator and correctness gate
-scenarios/                 declarative load scenarios
-vendor/raknet-rust/        pinned upstream RakNet snapshot
+game/server
+    |
+    v
+ardosia-protocol
+MCPE protocol 84
+    |
+    v
+ardosia-network
+UDP + RakNet
 ```
 
-## Public transport boundary
+`ardosia-network` must not own game packets such as login, movement, chunks, inventory, entities, or world protocol codecs.
 
-`ardosia-network` deals in connections and raw bytes:
+Likewise, `ardosia-protocol` must not own UDP sockets, RakNet handshakes, retransmission, congestion control, or transport session mechanics.
+
+Public Ardosia networking APIs do not expose vendored `raknet-rust` types.
+
+## Repository layout
+
+```text
+crates/ardosia-network/   public Ardosia transport facade
+crates/ardosia-loadgen/   load generator, correctness gates, and profiling harness
+scenarios/                declarative benchmark scenarios
+docs/benchmarks.md        benchmark and profiling workflow
+docs/results/             checked-in benchmark evidence
+vendor/raknet-rust/       pinned upstream RakNet snapshot
+```
+
+## Example
 
 ```rust
 let mut connection = server.accept().await?;
+
 let payload = connection.recv().await?;
+
 connection
     .send(payload, Reliability::ReliableOrdered)
     .await?;
 ```
 
-It must not contain MCPE packet types such as Login, StartGame, MovePlayer, LevelChunk, inventory packets, or world/game protocol codecs.
+The transport does not interpret the payload as an MCPE game packet.
 
 ## Protocol 8
 
-The RakNet version is configured rather than patched into the vendored source.
+The server maps the configured RakNet protocol list into the vendor transport configuration. The load generator independently configures the RakNet client protocol version.
 
-Server-side Ardosia configuration maps protocol `8` into the vendor's `TransportConfig::supported_protocols`. The load generator maps protocol `8` into `RaknetClientConfig::protocol_version`.
+Regression coverage verifies that:
 
-Regression tests independently verify that:
+- protocol `8` is accepted when configured;
+- unsupported RakNet protocol versions are rejected;
+- a full protocol-8 client can complete the RakNet handshake and reach the Ardosia server facade.
 
-- a raw `OpenConnectionRequest1` advertising protocol 8 is accepted;
-- protocol 11 is rejected when the server is configured for only protocol 8;
-- a full protocol-8 RakNet client reaches `NetworkServer::accept()`.
+## Verification
 
-## Tests
+Run the workspace quality gate with:
 
 ```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
 ```
 
-GitHub Actions CI is deliberately `workflow_dispatch`-only so development commits do not consume hosted-runner minutes automatically.
+GitHub Actions workflows are manual-only so hosted runner time is not consumed on every development commit.
 
-## Load generator
+## Performance and benchmarking
 
-Run the checked-in 300-session baseline locally:
+The repository includes repeatable local scenarios for connection correctness, mixed steady-state traffic, 500-session churn, 1000-session characterization, and server CPU profiling.
 
-```bash
-cargo run -p ardosia-loadgen -- local scenarios/connect-300.toml
-```
+See [`docs/benchmarks.md`](docs/benchmarks.md) for the canonical commands and interpretation rules.
 
-Run clients against an external target:
+Checked-in results under [`docs/results/`](docs/results/) record specific benchmark runs and their environments. Current evidence includes:
 
-```bash
-cargo run -p ardosia-loadgen -- run scenarios/connect-300.toml --target 127.0.0.1:19132
-```
+- connection correctness at 300 sessions;
+- steady-state scaling characterization at 500 and 1000 sessions;
+- a 1000-session CPU profile;
+- constant-population churn at 500 sessions with 1500 successful planned replacements.
 
-Run only the Ardosia benchmark server:
+These are engineering measurements from specific machines and commits. They are not production SLAs or universal capacity claims.
 
-```bash
-cargo run -p ardosia-loadgen -- serve --bind 0.0.0.0:19132 --protocol 8 --max-connections 1024
-```
+## Vendored RakNet
 
-The load clients continue polling RakNet events throughout ramp-up and hold time; they do not simply connect and sleep.
+Ardosia currently vendors a pinned `mcbe-rs/raknet-rust` snapshot so transport behavior is reproducible and inspectable while the networking layer is being developed.
 
-## Verified connect-300 result
+Vendor changes are evidence-driven. A benchmark, compatibility test, or profile should identify a concrete need before transport algorithms are patched.
 
-The first hosted baseline completed successfully on August 18, 2026:
+See `vendor/raknet-rust/UPSTREAM.md` for provenance and compatibility notes.
 
-```text
-requested clients:       300
-successful handshakes:   300
-failed handshakes:       0
-unexpected disconnects:  0
-protocol/decode errors:  0
-clean disconnects:       300
-benchmark duration:      69,995 ms
-RakNet protocol:         8
-```
+## Project direction
 
-See `docs/results/2026-08-18-connect-300.md` for the exact result and scope.
+Near-term networking work is focused on:
 
-## What this result does not prove
+- scaling and multicore characterization;
+- reducing avoidable per-session/runtime overhead;
+- preserving strict correctness under steady load and churn;
+- keeping the game protocol boundary separate from transport;
+- avoiding speculative changes to reliability or congestion behavior.
 
-`connect-300` is a connection/hold correctness baseline, not the final capacity claim for Ardosia. It does not yet measure realistic movement/game traffic, fanout, packet loss, jitter, CPU/RSS, RTT percentiles, retransmission pressure, ACK/NACK rates, or 500-1000 client ceilings. Those belong to the next scaling phase.
+Ardosia is not affiliated with Mojang Studios or Microsoft.

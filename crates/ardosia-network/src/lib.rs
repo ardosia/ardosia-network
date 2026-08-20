@@ -11,7 +11,11 @@ mod server;
 pub use config::NetworkConfig;
 pub use connection::Connection;
 pub use error::NetworkError;
-pub use metrics::NetworkMetrics;
+pub use metrics::{
+    NetworkMetrics, TransportMetrics, TransportOrderingMetrics, TransportQueueMetrics,
+    TransportReliabilityMetrics, TransportSessionMetrics, TransportTimingMetrics,
+    TransportTrafficMetrics,
+};
 pub use reliability::Reliability;
 pub use server::NetworkServer;
 

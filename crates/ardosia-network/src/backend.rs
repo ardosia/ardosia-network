@@ -199,6 +199,14 @@ async fn handle_server_event(
             let _ = accept_tx.try_send(Err(NetworkError::BackendFailure { message }));
             true
         }
+        RaknetServerEvent::Metrics {
+            shard_id,
+            snapshot,
+            dropped_non_critical_events,
+        } => {
+            metrics.ingest_transport_snapshot(shard_id, *snapshot, dropped_non_critical_events);
+            false
+        }
         _ => false,
     }
 }
