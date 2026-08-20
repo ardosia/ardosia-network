@@ -7,6 +7,7 @@ use ardosia_loadgen::cli::{Cli, Command};
 use ardosia_loadgen::report::RunReport;
 use ardosia_loadgen::resource::ResourceSummary;
 use ardosia_loadgen::runner::{run_clients, run_local, run_profile, serve_until};
+use ardosia_loadgen::runtime_override::configure_worker_shards;
 use ardosia_loadgen::scenario::Scenario;
 use clap::Parser;
 use tokio::sync::watch;
@@ -16,7 +17,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Local { scenario, bind } => {
+        Command::Local {
+            scenario,
+            bind,
+            worker_shards,
+        } => {
+            configure_worker_shards(worker_shards);
             let scenario = load_scenario(&scenario)?;
             let report = if scenario.churn.is_some() {
                 run_local_churn(bind, &scenario).await?
@@ -29,7 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             scenario,
             bind,
             output,
+            worker_shards,
         } => {
+            configure_worker_shards(worker_shards);
             let loaded = load_scenario(&scenario)?;
             let profile = run_profile(bind, &scenario, &loaded, output.as_deref()).await?;
             eprintln!("profile: {}", profile.output_dir.display());
@@ -88,6 +96,15 @@ fn print_summary(report: &RunReport) {
         "sessions: {}/{}",
         counts.successful_handshakes, report.scenario.clients
     );
+    if let Some(runtime) = report.server_runtime {
+        eprintln!(
+            "runtime: worker_shards requested={} effective={}",
+            runtime
+                .requested_worker_shards
+                .map_or_else(|| "auto".into(), |value| value.to_string()),
+            runtime.effective_worker_shards,
+        );
+    }
     eprintln!(
         "errors: disconnect={} protocol={} send={} backpressure_drop={}",
         counts.unexpected_disconnects, counts.protocol_errors, counts.send_errors, queue_failures
