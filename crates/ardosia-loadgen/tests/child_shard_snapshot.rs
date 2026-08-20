@@ -52,26 +52,25 @@ async fn child_snapshot_exposes_configured_transport_shards() {
     ));
 
     let deadline = Instant::now() + Duration::from_secs(3);
-    let mut observed_ids = Vec::new();
     loop {
         send_command(&mut parent_write, &ChildCommand::Snapshot).await;
         match read_event(&mut parent_lines).await {
             ChildEvent::Snapshot { shard_metrics, .. } => {
-                observed_ids = shard_metrics
+                let observed_ids = shard_metrics
                     .iter()
                     .map(|shard| shard.shard_id)
                     .collect::<Vec<_>>();
                 if observed_ids == [0, 1] {
                     break;
                 }
+                assert!(
+                    Instant::now() < deadline,
+                    "expected shard ids [0, 1], observed {observed_ids:?}"
+                );
             }
             other => panic!("unexpected event while waiting for shard metrics: {other:?}"),
         }
 
-        assert!(
-            Instant::now() < deadline,
-            "expected shard ids [0, 1], observed {observed_ids:?}"
-        );
         sleep(Duration::from_millis(50)).await;
     }
 
