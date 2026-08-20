@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use ardosia_network::{NetworkConfig, NetworkError, NetworkServer, Reliability};
+use ardosia_network::{
+    NetworkConfig, NetworkError, NetworkRuntimeConfig, NetworkServer, Reliability,
+};
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig, RaknetClientEvent};
 use raknet_rust::low_level::protocol::Reliability as VendorReliability;
@@ -25,6 +27,7 @@ async fn rejects_empty_protocol_list() {
         bind_addr: allocate_loopback_addr(),
         raknet_protocols: vec![],
         max_connections: 32,
+        runtime: NetworkRuntimeConfig::default(),
     })
     .await;
 
@@ -43,6 +46,7 @@ async fn rejects_zero_max_connections() {
         bind_addr: allocate_loopback_addr(),
         raknet_protocols: vec![8],
         max_connections: 0,
+        runtime: NetworkRuntimeConfig::default(),
     })
     .await;
 
@@ -62,6 +66,7 @@ async fn protocol8_roundtrips_reliable_ordered_payload() {
         bind_addr: addr,
         raknet_protocols: vec![8],
         max_connections: 32,
+        runtime: NetworkRuntimeConfig::default(),
     })
     .await
     .unwrap();
