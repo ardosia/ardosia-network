@@ -107,6 +107,17 @@ fn print_summary(report: &RunReport) {
         fmt_ms(results.latency.p99_ms),
         fmt_ms(results.latency.max_ms),
     );
+    if let Some(churn) = results.churn.as_ref() {
+        eprintln!(
+            "churn: planned={} replaced={} failed={} pop_min={} pop_end={} repl_p95={}",
+            churn.planned_disconnects,
+            churn.replacement_handshakes,
+            churn.replacement_failures,
+            churn.population_min,
+            churn.population_end,
+            fmt_ms(churn.replacement_latency.p95_ms),
+        );
+    }
     eprintln!(
         "raknet: retransmits={} ack={} nack={} queue_peak={} bytes",
         transport.retransmitted_datagrams,
