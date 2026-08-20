@@ -13,6 +13,7 @@ pub mod profiling;
 pub mod report;
 pub mod resource;
 pub mod runner;
+pub mod runtime_override;
 pub mod scenario;
 pub mod send_policy;
 pub mod workload;
