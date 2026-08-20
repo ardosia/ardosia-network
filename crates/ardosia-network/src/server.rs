@@ -6,7 +6,7 @@ use tokio::task::JoinHandle;
 
 use crate::backend::{BackendCommand, COMMAND_QUEUE_CAPACITY, run_backend};
 use crate::connection::Connection;
-use crate::{MetricsState, NetworkConfig, NetworkError, NetworkMetrics};
+use crate::{MetricsState, NetworkConfig, NetworkError, NetworkMetrics, NetworkShardMetrics};
 
 pub struct NetworkServer {
     accept_rx: mpsc::Receiver<Result<Connection, NetworkError>>,
@@ -52,6 +52,10 @@ impl NetworkServer {
 
     pub fn metrics(&self) -> NetworkMetrics {
         self.metrics.snapshot()
+    }
+
+    pub fn shard_metrics(&self) -> Vec<NetworkShardMetrics> {
+        self.metrics.shard_metrics()
     }
 
     pub async fn shutdown(self) -> Result<(), NetworkError> {
