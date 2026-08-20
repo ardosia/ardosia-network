@@ -835,6 +835,7 @@ impl ChildTarget {
             .send(&ChildCommand::Start {
                 bind_addr: bind_addr.to_string(),
                 scenario: scenario.clone(),
+                worker_shards: crate::runtime_override::worker_shards(),
             })
             .await
         {
