@@ -7,15 +7,13 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::time::{Instant, interval, sleep, sleep_until};
 
 use crate::child_protocol::{ChildCommand, ChildEvent, ServerRunReport};
-use crate::churn::{
-    ChurnCohort, ChurnEvent, ChurnSchedule, post_drain_transport_is_healthy,
-};
+use crate::churn::{ChurnCohort, ChurnEvent, ChurnSchedule, post_drain_transport_is_healthy};
 use crate::client_task::{ClientTaskResult, GenerationConnectOutcome};
 use crate::environment::collect_environment;
 use crate::latency::LatencyHistogram;
 use crate::report::{
-    ResourceWindowsReport, RunCounts, RunReport, RunReportInput, TransportMetricsReport,
-    TransportWindowReport,
+    ChurnReport, ResourceWindowsReport, RunCounts, RunReport, RunReportInput,
+    TransportMetricsReport, TransportWindowReport,
 };
 use crate::resource::{ResourceAccumulator, ResourcePoint, ResourceSampler};
 use crate::runner::RunnerError;
@@ -111,6 +109,7 @@ async fn run_local_churn_inner(
                 workload: aggregate.workload,
                 latency: aggregate.latency.summary(),
                 transport: TransportWindowReport::default(),
+                churn: None,
                 resources: ResourceWindowsReport {
                     ramp_server: Some(ramp_server.finish()),
                     ramp_loadgen: Some(ramp_loadgen.finish()),
@@ -175,8 +174,8 @@ async fn run_local_churn_inner(
     let transport_end = child.snapshot().await?;
     cohort.drain();
 
-    let drain_deadline = deadline
-        + Duration::from_secs(scenario.connect_timeout_seconds.saturating_mul(2));
+    let drain_deadline =
+        deadline + Duration::from_secs(scenario.connect_timeout_seconds.saturating_mul(2));
     drain_replacements_until(cohort, aggregate, drain_deadline).await?;
 
     let post_drain_transport = reconcile_post_drain_transport(
@@ -187,23 +186,23 @@ async fn run_local_churn_inner(
     )
     .await?;
 
-    // Task 10 serializes the full churn metrics block. Reading these invariants here keeps Task 9's
-    // execution contract explicit without changing the stable report schema one task early.
-    let _execution_health = (
-        cohort.metrics().planned_disconnects(),
-        cohort.metrics().completed_planned_disconnects(),
-        cohort.metrics().replacement_attempts(),
-        cohort.metrics().replacement_handshakes(),
-        cohort.metrics().replacement_failures(),
-        cohort.metrics().replacement_timeouts(),
-        cohort.metrics().schedule_misses(),
-        cohort.metrics().population_end(),
-        cohort.metrics().population_min(),
-        cohort.metrics().population_max(),
-        cohort.metrics().replacement_inflight_peak(),
-        cohort.metrics().replacement_latency_summary(),
+    let churn_report = ChurnReport {
+        admission_headroom: cohort.metrics().admission_headroom(),
+        server_max_connections: cohort.metrics().server_max_connections(),
+        planned_disconnects: cohort.metrics().planned_disconnects(),
+        completed_planned_disconnects: cohort.metrics().completed_planned_disconnects(),
+        replacement_attempts: cohort.metrics().replacement_attempts(),
+        replacement_handshakes: cohort.metrics().replacement_handshakes(),
+        replacement_failures: cohort.metrics().replacement_failures(),
+        replacement_timeouts: cohort.metrics().replacement_timeouts(),
+        schedule_misses: cohort.metrics().schedule_misses(),
+        population_min: cohort.metrics().population_min(),
+        population_max: cohort.metrics().population_max(),
+        population_end: cohort.metrics().population_end(),
+        replacement_inflight_peak: cohort.metrics().replacement_inflight_peak(),
+        replacement_latency: cohort.metrics().replacement_latency_summary(),
         post_drain_transport,
-    );
+    };
 
     cohort.shutdown();
     finish_all_generations(
@@ -229,6 +228,7 @@ async fn run_local_churn_inner(
                 transport_end,
                 transport_samples,
             ),
+            churn: Some(churn_report),
             resources: ResourceWindowsReport {
                 ramp_server: Some(ramp_server.finish()),
                 ramp_loadgen: Some(ramp_loadgen.finish()),
@@ -427,9 +427,7 @@ fn record_churn_event(
                         aggregate.counts.successful_handshakes.saturating_add(1);
                     true
                 }
-                GenerationConnectOutcome::Failed { client_id, .. }
-                    if client_id < initial_limit =>
-                {
+                GenerationConnectOutcome::Failed { client_id, .. } if client_id < initial_limit => {
                     aggregate.counts.failed_handshakes =
                         aggregate.counts.failed_handshakes.saturating_add(1);
                     true
