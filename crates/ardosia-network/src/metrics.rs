@@ -15,6 +15,12 @@ pub struct NetworkMetrics {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct NetworkShardMetrics {
+    pub shard_id: usize,
+    pub transport: TransportMetrics,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct TransportMetrics {
     pub sessions: TransportSessionMetrics,
     pub traffic: TransportTrafficMetrics,
@@ -118,6 +124,20 @@ impl MetricsState {
         }
     }
 
+    pub(crate) fn shard_metrics(&self) -> Vec<NetworkShardMetrics> {
+        let shards = self
+            .transport_shards
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        shards
+            .iter()
+            .map(|(&shard_id, shard)| NetworkShardMetrics {
+                shard_id,
+                transport: transport_from_shard(*shard),
+            })
+            .collect()
+    }
+
     pub(crate) fn ingest_transport_snapshot(
         &self,
         shard_id: usize,
@@ -158,6 +178,62 @@ impl MetricsState {
     pub(crate) fn backpressure_disconnect(&self) {
         self.backpressure_disconnects_total
             .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+fn transport_from_shard(shard: ShardSnapshot) -> TransportMetrics {
+    let snapshot = shard.snapshot;
+    let timing = if snapshot.session_count == 0 {
+        TransportTimingMetrics::default()
+    } else {
+        TransportTimingMetrics {
+            srtt_ms: Some(snapshot.avg_srtt_ms),
+            rtt_variance_ms: Some(snapshot.avg_rttvar_ms),
+            resend_rto_ms: Some(snapshot.avg_resend_rto_ms),
+            congestion_window: Some(snapshot.avg_congestion_window_packets),
+        }
+    };
+
+    TransportMetrics {
+        sessions: TransportSessionMetrics {
+            current: usize_to_u64(snapshot.session_count),
+            started_total: snapshot.sessions_started_total,
+            closed_total: snapshot.sessions_closed_total,
+            timed_out_total: snapshot.timed_out_sessions,
+        },
+        traffic: TransportTrafficMetrics {
+            ingress_datagrams: snapshot.ingress_datagrams,
+            ingress_frames: snapshot.ingress_frames,
+            forwarded_packets: snapshot.packets_forwarded_total,
+            forwarded_bytes: snapshot.bytes_forwarded_total,
+        },
+        reliability: TransportReliabilityMetrics {
+            reliable_sent_datagrams: snapshot.reliable_sent_datagrams,
+            retransmitted_datagrams: snapshot.resent_datagrams,
+            acks_out: snapshot.ack_out_total,
+            nacks_out: snapshot.nack_out_total,
+            acked_datagrams: snapshot.acked_datagrams,
+            nacked_datagrams: snapshot.nacked_datagrams,
+        },
+        queues: TransportQueueMetrics {
+            pending_outgoing_frames: usize_to_u64(snapshot.pending_outgoing_frames),
+            pending_outgoing_bytes: usize_to_u64(snapshot.pending_outgoing_bytes),
+            outgoing_queue_drops: snapshot.outgoing_queue_drops,
+            outgoing_queue_defers: snapshot.outgoing_queue_defers,
+            outgoing_queue_disconnects: snapshot.outgoing_queue_disconnects,
+            backpressure_delays: snapshot.backpressure_delays,
+            backpressure_drops: snapshot.backpressure_drops,
+            backpressure_disconnects: snapshot.backpressure_disconnects,
+        },
+        ordering: TransportOrderingMetrics {
+            duplicate_reliable_drops: snapshot.duplicate_reliable_drops,
+            ordered_stale_drops: snapshot.ordered_stale_drops,
+            ordered_buffer_full_drops: snapshot.ordered_buffer_full_drops,
+            sequenced_stale_drops: snapshot.sequenced_stale_drops,
+            split_ttl_drops: snapshot.split_ttl_drops,
+        },
+        timing,
+        dropped_non_critical_events: shard.dropped_non_critical_events,
     }
 }
 
