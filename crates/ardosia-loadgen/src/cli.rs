@@ -17,6 +17,8 @@ pub enum Command {
         scenario: PathBuf,
         #[arg(long, default_value = "127.0.0.1:19132")]
         bind: SocketAddr,
+        #[arg(long)]
+        worker_shards: Option<usize>,
     },
     Profile {
         scenario: PathBuf,
@@ -24,6 +26,8 @@ pub enum Command {
         bind: SocketAddr,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        worker_shards: Option<usize>,
     },
     Run {
         scenario: PathBuf,
