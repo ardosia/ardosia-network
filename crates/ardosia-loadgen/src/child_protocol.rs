@@ -16,6 +16,8 @@ pub enum ChildCommand {
     Start {
         bind_addr: String,
         scenario: Scenario,
+        #[serde(default)]
+        worker_shards: Option<usize>,
     },
     BeginMeasurement,
     EndMeasurement,
@@ -97,6 +99,7 @@ where
             ChildCommand::Start {
                 bind_addr,
                 scenario,
+                worker_shards,
             } => {
                 if server.is_some() {
                     write_event(
@@ -112,7 +115,7 @@ where
                 let address: SocketAddr = bind_addr
                     .parse()
                     .map_err(|_| ChildProtocolError::InvalidBindAddress(bind_addr.clone()))?;
-                let handle = server_target::spawn_local_target(address, scenario)
+                let handle = server_target::spawn_local_target(address, scenario, worker_shards)
                     .await
                     .map_err(|error| ChildProtocolError::Server(error.to_string()))?;
                 server = Some(handle);
