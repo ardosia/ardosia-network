@@ -14,6 +14,7 @@ on:
           - steady-500
           - ceiling-1000
           - steady-1000
+          - churn-500
 
 permissions:
   contents: read
