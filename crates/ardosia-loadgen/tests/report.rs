@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use ardosia_loadgen::latency::LatencySummary;
 use ardosia_loadgen::report::{
-    EnvironmentReport, ResourceWindowsReport, RunCounts, RunReport, RunReportInput,
-    TransportCounterReport, TransportWindowReport,
+    ChurnReport, EnvironmentReport, ResourceWindowsReport, RunCounts, RunReport, RunReportInput,
+    TransportCounterReport, TransportMetricsReport, TransportWindowReport,
 };
 use ardosia_loadgen::resource::ResourceSummary;
 use ardosia_loadgen::scenario::Scenario;
@@ -60,6 +60,10 @@ payload_bytes = 32
     .unwrap()
 }
 
+fn churn_scenario() -> Scenario {
+    Scenario::from_str(include_str!("../../../scenarios/churn-500.toml")).unwrap()
+}
+
 fn clean_counts() -> RunCounts {
     RunCounts {
         successful_handshakes: 300,
@@ -68,6 +72,17 @@ fn clean_counts() -> RunCounts {
         protocol_errors: 0,
         send_errors: 0,
         clean_disconnects: 300,
+    }
+}
+
+fn clean_churn_counts() -> RunCounts {
+    RunCounts {
+        successful_handshakes: 500,
+        failed_handshakes: 0,
+        unexpected_disconnects: 0,
+        protocol_errors: 0,
+        send_errors: 0,
+        clean_disconnects: 500,
     }
 }
 
@@ -86,6 +101,17 @@ fn complete_workload() -> WorkloadCounts {
     workload
 }
 
+fn latency() -> LatencySummary {
+    LatencySummary {
+        samples: 1,
+        p50_ms: Some(1.0),
+        p95_ms: Some(1.0),
+        p99_ms: Some(1.0),
+        max_ms: Some(1.0),
+        ..LatencySummary::default()
+    }
+}
+
 fn report(scenario: Scenario, counts: RunCounts, workload: WorkloadCounts) -> RunReport {
     RunReport::assemble(
         EnvironmentReport::default(),
@@ -93,20 +119,69 @@ fn report(scenario: Scenario, counts: RunCounts, workload: WorkloadCounts) -> Ru
         RunReportInput {
             correctness: counts,
             workload,
-            latency: LatencySummary {
-                samples: 1,
-                p50_ms: Some(1.0),
-                p95_ms: Some(1.0),
-                p99_ms: Some(1.0),
-                max_ms: Some(1.0),
-                ..LatencySummary::default()
-            },
+            latency: latency(),
             transport: TransportWindowReport::default(),
+            churn: None,
             resources: ResourceWindowsReport::default(),
             total_duration_ms: 70_000,
             measured_duration_ms: 60_000,
         },
     )
+}
+
+fn passing_churn_input() -> RunReportInput {
+    let mut transport = TransportWindowReport::default();
+    transport.start = TransportMetricsReport {
+        sessions_current: 500,
+        timed_out_sessions: 0,
+        ..TransportMetricsReport::default()
+    };
+    transport.end = TransportMetricsReport {
+        sessions_current: 500,
+        sessions_started_total: 1_999,
+        sessions_closed_total: 1_499,
+        timed_out_sessions: 0,
+        ..TransportMetricsReport::default()
+    };
+    transport.delta = TransportCounterReport {
+        sessions_started: 1_499,
+        sessions_closed: 1_499,
+        timed_out_sessions: 0,
+        ..TransportCounterReport::default()
+    };
+
+    RunReportInput {
+        correctness: clean_churn_counts(),
+        workload: complete_workload(),
+        latency: latency(),
+        transport,
+        churn: Some(ChurnReport {
+            admission_headroom: 125,
+            server_max_connections: 625,
+            planned_disconnects: 1_500,
+            completed_planned_disconnects: 1_500,
+            replacement_attempts: 1_500,
+            replacement_handshakes: 1_500,
+            replacement_failures: 0,
+            replacement_timeouts: 0,
+            schedule_misses: 0,
+            population_min: 499,
+            population_max: 500,
+            population_end: 500,
+            replacement_inflight_peak: 1,
+            replacement_latency: latency(),
+            post_drain_transport: TransportMetricsReport {
+                sessions_current: 500,
+                sessions_started_total: 2_000,
+                sessions_closed_total: 1_500,
+                timed_out_sessions: 0,
+                ..TransportMetricsReport::default()
+            },
+        }),
+        resources: ResourceWindowsReport::default(),
+        total_duration_ms: 70_000,
+        measured_duration_ms: 60_000,
+    }
 }
 
 #[test]
@@ -142,15 +217,9 @@ fn steady_report_fails_on_queue_or_backpressure_drop() {
     let mut input = RunReportInput {
         correctness: clean_counts(),
         workload: complete_workload(),
-        latency: LatencySummary {
-            samples: 1,
-            p50_ms: Some(1.0),
-            p95_ms: Some(1.0),
-            p99_ms: Some(1.0),
-            max_ms: Some(1.0),
-            ..LatencySummary::default()
-        },
+        latency: latency(),
         transport: TransportWindowReport::default(),
+        churn: None,
         resources: ResourceWindowsReport::default(),
         total_duration_ms: 70_000,
         measured_duration_ms: 60_000,
@@ -169,6 +238,31 @@ fn steady_report_fails_on_queue_or_backpressure_drop() {
             .failure_reasons
             .iter()
             .any(|reason| reason.contains("queue/backpressure"))
+    );
+}
+
+#[test]
+fn steady_report_fails_on_session_churn() {
+    let mut input = RunReportInput {
+        correctness: clean_counts(),
+        workload: complete_workload(),
+        latency: latency(),
+        transport: TransportWindowReport::default(),
+        churn: None,
+        resources: ResourceWindowsReport::default(),
+        total_duration_ms: 70_000,
+        measured_duration_ms: 60_000,
+    };
+    input.transport.delta.sessions_started = 1;
+
+    let report = RunReport::assemble(EnvironmentReport::default(), steady_scenario(), input);
+    assert!(!report.results.passed);
+    assert!(
+        report
+            .results
+            .failure_reasons
+            .iter()
+            .any(|reason| reason.contains("session churn"))
     );
 }
 
@@ -202,6 +296,7 @@ fn high_resource_latency_and_retransmit_values_are_record_only() {
             ..LatencySummary::default()
         },
         transport: TransportWindowReport::default(),
+        churn: None,
         resources: ResourceWindowsReport::default(),
         total_duration_ms: 70_000,
         measured_duration_ms: 60_000,
@@ -222,4 +317,52 @@ fn high_resource_latency_and_retransmit_values_are_record_only() {
         "{:?}",
         report.results.failure_reasons
     );
+}
+
+#[test]
+fn clean_churn_report_passes_with_lifecycle_totals() {
+    let report = RunReport::assemble(
+        EnvironmentReport::default(),
+        churn_scenario(),
+        passing_churn_input(),
+    );
+    assert!(report.results.passed, "{:?}", report.results.failure_reasons);
+    assert!(report.results.churn.is_some());
+}
+
+#[test]
+fn churn_report_rejects_replacement_failure() {
+    let mut input = passing_churn_input();
+    input.churn.as_mut().unwrap().replacement_failures = 1;
+    input.churn.as_mut().unwrap().replacement_handshakes = 1_499;
+
+    let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), input);
+    assert!(!report.results.passed);
+    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("churn replacement")));
+}
+
+#[test]
+fn churn_report_rejects_schedule_miss() {
+    let mut input = passing_churn_input();
+    input.churn.as_mut().unwrap().schedule_misses = 1;
+
+    let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), input);
+    assert!(!report.results.passed);
+    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("churn schedule")));
+}
+
+#[test]
+fn churn_report_rejects_bad_post_drain_population_or_timeout_growth() {
+    let mut population = passing_churn_input();
+    population.churn.as_mut().unwrap().population_end = 499;
+    population.churn.as_mut().unwrap().post_drain_transport.sessions_current = 499;
+    let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), population);
+    assert!(!report.results.passed);
+    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("churn drain")));
+
+    let mut timeout = passing_churn_input();
+    timeout.churn.as_mut().unwrap().post_drain_transport.timed_out_sessions = 1;
+    let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), timeout);
+    assert!(!report.results.passed);
+    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("transport timeout")));
 }
