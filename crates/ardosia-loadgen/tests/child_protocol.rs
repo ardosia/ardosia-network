@@ -32,16 +32,19 @@ fn child_commands_and_events_roundtrip_json() {
     let start = ChildCommand::Start {
         bind_addr: "127.0.0.1:19132".into(),
         scenario: scenario(),
+        worker_shards: None,
     };
     let start_json = serde_json::to_string(&start).unwrap();
     match serde_json::from_str::<ChildCommand>(&start_json).unwrap() {
         ChildCommand::Start {
             bind_addr,
             scenario,
+            worker_shards,
         } => {
             assert_eq!(bind_addr, "127.0.0.1:19132");
             assert_eq!(scenario.name, "child-smoke");
             assert_eq!(scenario.seed, 7);
+            assert_eq!(worker_shards, None);
         }
         other => panic!("unexpected command: {other:?}"),
     }
@@ -94,6 +97,7 @@ async fn child_session_obeys_ready_measure_end_stop_order_and_reaps_server_task(
         &ChildCommand::Start {
             bind_addr: bind_addr.to_string(),
             scenario: scenario(),
+            worker_shards: None,
         },
     )
     .await;
