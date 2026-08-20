@@ -8,7 +8,7 @@ mod metrics;
 mod reliability;
 mod server;
 
-pub use config::NetworkConfig;
+pub use config::{NetworkConfig, NetworkRuntimeConfig};
 pub use connection::Connection;
 pub use error::NetworkError;
 pub use metrics::{
