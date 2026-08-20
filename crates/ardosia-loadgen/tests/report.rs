@@ -326,7 +326,11 @@ fn clean_churn_report_passes_with_lifecycle_totals() {
         churn_scenario(),
         passing_churn_input(),
     );
-    assert!(report.results.passed, "{:?}", report.results.failure_reasons);
+    assert!(
+        report.results.passed,
+        "{:?}",
+        report.results.failure_reasons
+    );
     assert!(report.results.churn.is_some());
 }
 
@@ -338,7 +342,13 @@ fn churn_report_rejects_replacement_failure() {
 
     let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), input);
     assert!(!report.results.passed);
-    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("churn replacement")));
+    assert!(
+        report
+            .results
+            .failure_reasons
+            .iter()
+            .any(|reason| reason.contains("churn replacement"))
+    );
 }
 
 #[test]
@@ -348,21 +358,49 @@ fn churn_report_rejects_schedule_miss() {
 
     let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), input);
     assert!(!report.results.passed);
-    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("churn schedule")));
+    assert!(
+        report
+            .results
+            .failure_reasons
+            .iter()
+            .any(|reason| reason.contains("churn schedule"))
+    );
 }
 
 #[test]
 fn churn_report_rejects_bad_post_drain_population_or_timeout_growth() {
     let mut population = passing_churn_input();
     population.churn.as_mut().unwrap().population_end = 499;
-    population.churn.as_mut().unwrap().post_drain_transport.sessions_current = 499;
+    population
+        .churn
+        .as_mut()
+        .unwrap()
+        .post_drain_transport
+        .sessions_current = 499;
     let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), population);
     assert!(!report.results.passed);
-    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("churn drain")));
+    assert!(
+        report
+            .results
+            .failure_reasons
+            .iter()
+            .any(|reason| reason.contains("churn drain"))
+    );
 
     let mut timeout = passing_churn_input();
-    timeout.churn.as_mut().unwrap().post_drain_transport.timed_out_sessions = 1;
+    timeout
+        .churn
+        .as_mut()
+        .unwrap()
+        .post_drain_transport
+        .timed_out_sessions = 1;
     let report = RunReport::assemble(EnvironmentReport::default(), churn_scenario(), timeout);
     assert!(!report.results.passed);
-    assert!(report.results.failure_reasons.iter().any(|reason| reason.contains("transport timeout")));
+    assert!(
+        report
+            .results
+            .failure_reasons
+            .iter()
+            .any(|reason| reason.contains("transport timeout"))
+    );
 }
