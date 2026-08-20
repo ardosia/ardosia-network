@@ -170,15 +170,19 @@ where
                     .await?;
                     continue;
                 };
-                let metrics = handle
+                let snapshot = handle
                     .snapshot()
                     .await
                     .map_err(|error| ChildProtocolError::Server(error.to_string()))?;
                 write_event(
                     &mut writer,
                     &ChildEvent::Snapshot {
-                        metrics: metrics.transport.into(),
-                        shard_metrics: Vec::new(),
+                        metrics: snapshot.metrics.transport.into(),
+                        shard_metrics: snapshot
+                            .shard_metrics
+                            .into_iter()
+                            .map(TransportShardMetricsReport::from)
+                            .collect(),
                     },
                 )
                 .await?;
