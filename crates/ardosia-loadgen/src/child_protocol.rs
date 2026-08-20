@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::report::TransportMetricsReport;
+use crate::report::{TransportMetricsReport, TransportShardMetricsReport};
 use crate::scenario::Scenario;
 use crate::server_target;
 use crate::workload::WorkloadCounts;
@@ -34,7 +34,11 @@ pub enum ChildEvent {
     Ready { pid: u32 },
     MeasurementStarted,
     MeasurementEnded,
-    Snapshot { metrics: TransportMetricsReport },
+    Snapshot {
+        metrics: TransportMetricsReport,
+        #[serde(default)]
+        shard_metrics: Vec<TransportShardMetricsReport>,
+    },
     Stopped { report: Box<ServerRunReport> },
     Error { message: String },
 }
@@ -174,6 +178,7 @@ where
                     &mut writer,
                     &ChildEvent::Snapshot {
                         metrics: metrics.transport.into(),
+                        shard_metrics: Vec::new(),
                     },
                 )
                 .await?;
