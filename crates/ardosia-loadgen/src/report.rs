@@ -61,11 +61,31 @@ pub struct RunCounts {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChurnReport {
+    pub admission_headroom: usize,
+    pub server_max_connections: usize,
+    pub planned_disconnects: u64,
+    pub completed_planned_disconnects: u64,
+    pub replacement_attempts: u64,
+    pub replacement_handshakes: u64,
+    pub replacement_failures: u64,
+    pub replacement_timeouts: u64,
+    pub schedule_misses: u64,
+    pub population_min: usize,
+    pub population_max: usize,
+    pub population_end: usize,
+    pub replacement_inflight_peak: usize,
+    pub replacement_latency: LatencySummary,
+    pub post_drain_transport: TransportMetricsReport,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResultsReport {
     pub correctness: RunCounts,
     pub workload: WorkloadReport,
     pub latency: LatencySummary,
     pub transport: TransportWindowReport,
+    pub churn: Option<ChurnReport>,
     pub resources: ResourceWindowsReport,
     pub total_duration_ms: u64,
     pub measured_duration_ms: u64,
@@ -79,6 +99,7 @@ pub struct RunReportInput {
     pub workload: WorkloadCounts,
     pub latency: LatencySummary,
     pub transport: TransportWindowReport,
+    pub churn: Option<ChurnReport>,
     pub resources: ResourceWindowsReport,
     pub total_duration_ms: u64,
     pub measured_duration_ms: u64,
@@ -329,6 +350,7 @@ impl RunReport {
             input.workload,
             input.latency,
             input.transport,
+            input.churn.as_ref(),
         );
         let passed = failure_reasons.is_empty();
         Self {
@@ -339,6 +361,7 @@ impl RunReport {
                 workload,
                 latency: input.latency,
                 transport: input.transport,
+                churn: input.churn,
                 resources: input.resources,
                 total_duration_ms: input.total_duration_ms,
                 measured_duration_ms: input.measured_duration_ms,
@@ -376,6 +399,7 @@ fn gate_failures(
     workload: WorkloadCounts,
     latency: LatencySummary,
     transport: TransportWindowReport,
+    churn: Option<&ChurnReport>,
 ) -> Vec<String> {
     let mut failures = Vec::new();
     if correctness.successful_handshakes != scenario.clients {
@@ -425,6 +449,82 @@ fn gate_failures(
         failures.push(format!(
             "{queue_drops} queue/backpressure drop or disconnect event(s)"
         ));
+    }
+
+    match (&scenario.churn, churn) {
+        (None, None) => {
+            if transport.delta.sessions_started != 0 || transport.delta.sessions_closed != 0 {
+                failures.push(format!(
+                    "session churn during steady window: started={} closed={}",
+                    transport.delta.sessions_started, transport.delta.sessions_closed
+                ));
+            }
+            if transport.delta.timed_out_sessions != 0 {
+                failures.push(format!(
+                    "transport timeout growth during steady window: {}",
+                    transport.delta.timed_out_sessions
+                ));
+            }
+        }
+        (None, Some(_)) => failures.push("churn report present for non-churn scenario".into()),
+        (Some(_), None) => failures.push("churn report missing for churn scenario".into()),
+        (Some(config), Some(churn)) => {
+            let expected_planned =
+                (config.replacements_per_second * scenario.hold_seconds as f64).floor() as u64;
+
+            if churn.planned_disconnects != expected_planned {
+                failures.push(format!(
+                    "churn schedule planned {} replacement(s), expected {expected_planned}",
+                    churn.planned_disconnects
+                ));
+            }
+            if churn.schedule_misses != 0 {
+                failures.push(format!(
+                    "churn schedule missed {} nominal replacement tick(s)",
+                    churn.schedule_misses
+                ));
+            }
+            if churn.completed_planned_disconnects != churn.planned_disconnects
+                || churn.replacement_attempts != churn.planned_disconnects
+                || churn.replacement_handshakes != churn.replacement_attempts
+                || churn.replacement_failures != 0
+                || churn.replacement_timeouts != 0
+            {
+                failures.push(format!(
+                    "churn replacement mismatch: planned={} completed={} attempts={} handshakes={} failures={} timeouts={}",
+                    churn.planned_disconnects,
+                    churn.completed_planned_disconnects,
+                    churn.replacement_attempts,
+                    churn.replacement_handshakes,
+                    churn.replacement_failures,
+                    churn.replacement_timeouts,
+                ));
+            }
+
+            let expected_current = u64::try_from(scenario.clients).unwrap_or(u64::MAX);
+            if churn.population_end != scenario.clients
+                || churn.post_drain_transport.sessions_current != expected_current
+            {
+                failures.push(format!(
+                    "churn drain did not recover target population: logical={} transport={} target={}",
+                    churn.population_end,
+                    churn.post_drain_transport.sessions_current,
+                    scenario.clients,
+                ));
+            }
+
+            if transport.delta.timed_out_sessions != 0
+                || churn.post_drain_transport.timed_out_sessions
+                    != transport.start.timed_out_sessions
+            {
+                failures.push(format!(
+                    "transport timeout growth during churn: measured_delta={} baseline={} post_drain={}",
+                    transport.delta.timed_out_sessions,
+                    transport.start.timed_out_sessions,
+                    churn.post_drain_transport.timed_out_sessions,
+                ));
+            }
+        }
     }
 
     for spec in &scenario.traffic {
