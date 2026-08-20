@@ -99,11 +99,11 @@ fn post_drain_population_accepts_lifecycle_totals_but_requires_target_current() 
         timed_out_sessions: 0,
         ..TransportMetricsReport::default()
     };
-    assert!(post_drain_transport_is_healthy(healthy.clone(), 500, 0));
+    assert!(post_drain_transport_is_healthy(healthy, 500, 0));
 
     let deficit = TransportMetricsReport {
         sessions_current: 499,
-        ..healthy.clone()
+        ..healthy
     };
     assert!(!post_drain_transport_is_healthy(deficit, 500, 0));
 
