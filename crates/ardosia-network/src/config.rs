@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use raknet_rust::low_level::transport::TransportConfig;
+use raknet_rust::low_level::transport::{ShardedRuntimeConfig, TransportConfig};
 
 use crate::NetworkError;
 
@@ -10,6 +10,13 @@ pub struct NetworkRuntimeConfig {
     ///
     /// `None` preserves the vendor runtime default.
     pub worker_shards: Option<usize>,
+}
+
+impl NetworkRuntimeConfig {
+    pub fn effective_worker_shards(self) -> usize {
+        self.worker_shards
+            .unwrap_or_else(|| ShardedRuntimeConfig::default().shard_count)
+    }
 }
 
 #[derive(Debug, Clone)]
