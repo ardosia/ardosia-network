@@ -108,6 +108,7 @@ pub async fn run_clients(target: SocketAddr, scenario: &Scenario) -> RunReport {
             workload: aggregate.workload,
             latency: aggregate.latency.summary(),
             transport: TransportWindowReport::default(),
+            churn: None,
             resources: ResourceWindowsReport {
                 ramp_server: None,
                 ramp_loadgen: Some(ramp_loadgen.finish()),
@@ -308,6 +309,7 @@ async fn run_local_internal(
                 workload: aggregate.workload,
                 latency: aggregate.latency.summary(),
                 transport: TransportWindowReport::default(),
+                churn: None,
                 resources: ResourceWindowsReport {
                     ramp_server: Some(ramp_server.finish()),
                     ramp_loadgen: Some(ramp_loadgen.finish()),
@@ -476,6 +478,7 @@ async fn run_local_internal(
                 transport_end,
                 transport_samples,
             ),
+            churn: None,
             resources: ResourceWindowsReport {
                 ramp_server: Some(ramp_server.finish()),
                 ramp_loadgen: Some(ramp_loadgen.finish()),
