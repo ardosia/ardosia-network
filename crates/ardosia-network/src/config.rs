@@ -4,11 +4,20 @@ use raknet_rust::low_level::transport::TransportConfig;
 
 use crate::NetworkError;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NetworkRuntimeConfig {
+    /// Exact RakNet transport worker count.
+    ///
+    /// `None` preserves the vendor runtime default.
+    pub worker_shards: Option<usize>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub bind_addr: SocketAddr,
     pub raknet_protocols: Vec<u8>,
     pub max_connections: usize,
+    pub runtime: NetworkRuntimeConfig,
 }
 
 impl NetworkConfig {
@@ -24,6 +33,13 @@ impl NetworkConfig {
             return Err(NetworkError::InvalidConfig {
                 field: "max_connections",
                 message: "must be at least 1".into(),
+            });
+        }
+
+        if self.runtime.worker_shards == Some(0) {
+            return Err(NetworkError::InvalidConfig {
+                field: "runtime.worker_shards",
+                message: "must be at least 1 when specified".into(),
             });
         }
 
