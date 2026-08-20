@@ -2,7 +2,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use ardosia_network::{
-    Connection, NetworkConfig, NetworkError, NetworkMetrics, NetworkServer, Reliability,
+    Connection, NetworkConfig, NetworkError, NetworkMetrics, NetworkRuntimeConfig, NetworkServer,
+    Reliability,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
@@ -63,11 +64,13 @@ impl ServerTargetHandle {
 pub(crate) async fn spawn_local_target(
     bind_addr: SocketAddr,
     scenario: Scenario,
+    worker_shards: Option<usize>,
 ) -> Result<ServerTargetHandle, RunnerError> {
     let server = NetworkServer::bind(NetworkConfig {
         bind_addr,
         raknet_protocols: vec![scenario.protocol_version],
         max_connections: scenario.benchmark_max_connections(),
+        runtime: NetworkRuntimeConfig { worker_shards },
     })
     .await?;
 
@@ -99,6 +102,7 @@ pub(crate) async fn serve_until(
         bind_addr,
         raknet_protocols: vec![protocol_version],
         max_connections,
+        runtime: NetworkRuntimeConfig::default(),
     })
     .await?;
 
