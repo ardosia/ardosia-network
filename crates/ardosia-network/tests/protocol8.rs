@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use ardosia_network::{NetworkConfig, NetworkServer};
+use ardosia_network::{NetworkConfig, NetworkRuntimeConfig, NetworkServer};
 use raknet_rust::client::{RaknetClient, RaknetClientConfig};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
@@ -23,6 +23,7 @@ fn network_config(addr: SocketAddr) -> NetworkConfig {
         bind_addr: addr,
         raknet_protocols: vec![8],
         max_connections: 32,
+        runtime: NetworkRuntimeConfig::default(),
     }
 }
 
