@@ -332,6 +332,21 @@ impl RateLimiter {
         RateLimitDecision::Allow
     }
 
+    pub fn check_existing_block(&mut self, ip: IpAddr, now: Instant) -> bool {
+        self.tick(now);
+
+        if self.exceptions.contains(&ip) {
+            return false;
+        }
+
+        let Some(reason) = self.blocked.get(&ip).map(|state| state.reason) else {
+            return false;
+        };
+
+        self.record_ip_block_hit(reason);
+        true
+    }
+
     pub fn add_exception(&mut self, ip: IpAddr) {
         self.exceptions.insert(ip);
         if self.blocked.remove(&ip).is_some() {

@@ -125,7 +125,10 @@ async fn established_session_does_not_feed_coarse_ip_packet_limit() -> io::Resul
         Bytes::from_static(b"\xFEthree"),
     ] {
         client.send(payload.clone()).await?;
-        assert_eq!(recv_application_payload(&mut server, peer_addr).await?, payload);
+        assert_eq!(
+            recv_application_payload(&mut server, peer_addr).await?,
+            payload
+        );
     }
 
     let metrics = server.metrics_snapshot();

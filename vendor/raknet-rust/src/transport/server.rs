@@ -667,16 +667,25 @@ impl TransportServer {
         };
 
         let is_offline = is_offline_packet_id(first);
-        match self.rate_limiter.check(addr.ip(), now) {
-            RateLimitDecision::Allow => {}
-            RateLimitDecision::GlobalLimit => {
+        let is_known_peer = !is_offline
+            && (self.sessions.contains_key(&addr) || self.pending_handshakes.contains_key(&addr));
+
+        if is_known_peer {
+            if self.rate_limiter.check_existing_block(addr.ip(), now) {
                 return Ok(TransportEvent::RateLimited { addr });
             }
-            RateLimitDecision::IpBlocked { newly_blocked, .. } => {
-                if is_offline && newly_blocked {
-                    self.send_connection_banned(addr).await?;
+        } else {
+            match self.rate_limiter.check(addr.ip(), now) {
+                RateLimitDecision::Allow => {}
+                RateLimitDecision::GlobalLimit => {
+                    return Ok(TransportEvent::RateLimited { addr });
                 }
-                return Ok(TransportEvent::RateLimited { addr });
+                RateLimitDecision::IpBlocked { newly_blocked, .. } => {
+                    if is_offline && newly_blocked {
+                        self.send_connection_banned(addr).await?;
+                    }
+                    return Ok(TransportEvent::RateLimited { addr });
+                }
             }
         }
 
@@ -710,9 +719,7 @@ impl TransportServer {
             return Ok(TransportEvent::SessionLimitReached { addr });
         }
 
-        if matches!(&datagram.payload, DatagramPayload::Frames(_))
-            && !self.rate_limiter.is_exception(addr.ip())
-        {
+        if !self.rate_limiter.is_exception(addr.ip()) {
             let processing_cost = estimate_connected_datagram_processing_cost(len, &datagram);
             let budget_decision =
                 self.rate_limiter
