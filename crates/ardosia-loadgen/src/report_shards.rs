@@ -45,3 +45,13 @@ impl TransportShardWindowReport {
         }
     }
 }
+
+impl RunReport {
+    pub fn with_transport_shards(
+        mut self,
+        transport_shards: Vec<TransportShardWindowReport>,
+    ) -> Self {
+        self.results.transport_shards = transport_shards;
+        self
+    }
+}
