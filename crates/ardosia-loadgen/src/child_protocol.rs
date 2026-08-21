@@ -31,7 +31,9 @@ pub enum ChildCommand {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChildEvent {
-    Ready { pid: u32 },
+    Ready {
+        pid: u32,
+    },
     MeasurementStarted,
     MeasurementEnded,
     Snapshot {
@@ -39,8 +41,12 @@ pub enum ChildEvent {
         #[serde(default)]
         shard_metrics: Vec<TransportShardMetricsReport>,
     },
-    Stopped { report: Box<ServerRunReport> },
-    Error { message: String },
+    Stopped {
+        report: Box<ServerRunReport>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
