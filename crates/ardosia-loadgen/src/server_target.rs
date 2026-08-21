@@ -72,12 +72,20 @@ pub(crate) async fn spawn_local_target(
     scenario: Scenario,
     worker_shards: Option<usize>,
 ) -> Result<ServerTargetHandle, RunnerError> {
-    let server = NetworkServer::bind(NetworkConfig {
-        bind_addr,
-        raknet_protocols: vec![scenario.protocol_version],
-        max_connections: scenario.benchmark_max_connections(),
-        runtime: NetworkRuntimeConfig { worker_shards },
-    })
+    let rate_limit_exceptions = if bind_addr.ip().is_loopback() {
+        vec![bind_addr.ip()]
+    } else {
+        Vec::new()
+    };
+    let server = NetworkServer::bind_with_rate_limit_exceptions(
+        NetworkConfig {
+            bind_addr,
+            raknet_protocols: vec![scenario.protocol_version],
+            max_connections: scenario.benchmark_max_connections(),
+            runtime: NetworkRuntimeConfig { worker_shards },
+        },
+        rate_limit_exceptions,
+    )
     .await?;
 
     let (measure_tx, measure_rx) = watch::channel(false);
