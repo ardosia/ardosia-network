@@ -379,8 +379,6 @@ async fn run_worker_loop(
 
     loop {
         tokio::select! {
-            biased;
-
             _ = shutdown_rx.recv() => {
                 send_critical_event(&event_tx, ShardedRuntimeEvent::WorkerStopped { shard_id }).await?;
                 return Ok(());
