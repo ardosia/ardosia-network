@@ -60,6 +60,35 @@ async fn rejects_zero_max_connections() {
 }
 
 #[tokio::test]
+async fn bind_with_rate_limit_exceptions_applies_transport_exception() {
+    let addr = allocate_loopback_addr();
+    let server = NetworkServer::bind_with_rate_limit_exceptions(
+        NetworkConfig {
+            bind_addr: addr,
+            raknet_protocols: vec![8],
+            max_connections: 32,
+            runtime: NetworkRuntimeConfig::default(),
+        },
+        vec![addr.ip()],
+    )
+    .await
+    .unwrap();
+
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if server.metrics().transport.rate_exception_addresses == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    server.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn protocol8_roundtrips_reliable_ordered_payload() {
     let addr = allocate_loopback_addr();
     let mut server = NetworkServer::bind(NetworkConfig {
