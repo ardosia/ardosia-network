@@ -105,6 +105,8 @@ pub struct ResultsReport {
     pub workload: WorkloadReport,
     pub latency: LatencySummary,
     pub transport: TransportWindowReport,
+    #[serde(default)]
+    pub transport_shards: Vec<TransportShardWindowReport>,
     pub churn: Option<ChurnReport>,
     pub resources: ResourceWindowsReport,
     pub total_duration_ms: u64,
@@ -383,6 +385,7 @@ impl RunReport {
                 workload,
                 latency: input.latency,
                 transport: input.transport,
+                transport_shards: Vec::new(),
                 churn: input.churn,
                 resources: input.resources,
                 total_duration_ms: input.total_duration_ms,
