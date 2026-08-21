@@ -1,4 +1,3 @@
-use std::net::IpAddr;
 use std::sync::Arc;
 
 use raknet_rust::server::RaknetServer;
@@ -18,16 +17,7 @@ pub struct NetworkServer {
 
 impl NetworkServer {
     pub async fn bind(config: NetworkConfig) -> Result<Self, NetworkError> {
-        Self::bind_with_rate_limit_exceptions(config, Vec::new()).await
-    }
-
-    pub async fn bind_with_rate_limit_exceptions(
-        config: NetworkConfig,
-        rate_limit_exceptions: Vec<IpAddr>,
-    ) -> Result<Self, NetworkError> {
-        let mut transport = config.to_vendor_transport_config()?;
-        transport.rate_limit_exceptions.extend(rate_limit_exceptions);
-
+        let transport = config.to_vendor_transport_config()?;
         let mut builder = RaknetServer::builder().transport_config(transport);
         if let Some(worker_shards) = config.runtime.worker_shards {
             builder = builder.shard_count(worker_shards);
