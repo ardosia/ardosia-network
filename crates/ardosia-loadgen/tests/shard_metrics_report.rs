@@ -140,5 +140,11 @@ seed = 7
     );
 
     let json = serde_json::to_value(&report).unwrap();
-    assert_eq!(json["results"]["transport_shards"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        json["results"]["transport_shards"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
