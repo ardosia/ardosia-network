@@ -489,34 +489,43 @@ async fn run_worker_loop(
             }
 
             scheduled = outbound_tick.tick() => {
-                let started = time::Instant::now();
-                let lag = started.saturating_duration_since(scheduled);
-                let result = server.tick_outbound(
+                if diagnostics_enabled {
+                    let started = time::Instant::now();
+                    let lag = started.saturating_duration_since(scheduled);
+                    let result = server.tick_outbound(
+                        cfg.max_new_datagrams_per_session,
+                        cfg.max_new_bytes_per_session,
+                        cfg.max_resend_datagrams_per_session,
+                        cfg.max_resend_bytes_per_session,
+                    ).await;
+                    let duration = started.elapsed();
+
+                    match result {
+                        Ok(datagrams) => diagnostics.record_outbound_tick(
+                            duration,
+                            lag,
+                            datagrams,
+                            cfg.outbound_tick_interval,
+                        ),
+                        Err(e) => {
+                            let _ = send_critical_event(&event_tx, ShardedRuntimeEvent::WorkerError {
+                                shard_id,
+                                message: format!("outbound tick failed: {e}"),
+                            }).await;
+                            return Err(e);
+                        }
+                    }
+                } else if let Err(e) = server.tick_outbound(
                     cfg.max_new_datagrams_per_session,
                     cfg.max_new_bytes_per_session,
                     cfg.max_resend_datagrams_per_session,
                     cfg.max_resend_bytes_per_session,
-                ).await;
-                let duration = started.elapsed();
-
-                match result {
-                    Ok(datagrams) => {
-                        if diagnostics_enabled {
-                            diagnostics.record_outbound_tick(
-                                duration,
-                                lag,
-                                datagrams,
-                                cfg.outbound_tick_interval,
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        let _ = send_critical_event(&event_tx, ShardedRuntimeEvent::WorkerError {
-                            shard_id,
-                            message: format!("outbound tick failed: {e}"),
-                        }).await;
-                        return Err(e);
-                    }
+                ).await {
+                    let _ = send_critical_event(&event_tx, ShardedRuntimeEvent::WorkerError {
+                        shard_id,
+                        message: format!("outbound tick failed: {e}"),
+                    }).await;
+                    return Err(e);
                 }
             }
 
