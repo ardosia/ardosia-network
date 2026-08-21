@@ -22,7 +22,7 @@ use crate::profiling::{
 };
 use crate::report::{
     ResourceWindowsReport, RunCounts, RunReport, RunReportInput, TransportMetricsReport,
-    TransportWindowReport,
+    TransportShardMetricsReport, TransportShardWindowReport, TransportWindowReport,
 };
 use crate::resource::{ResourceAccumulator, ResourcePoint, ResourceSampler};
 use crate::sampling::steady_interval;
@@ -378,7 +378,7 @@ async fn run_local_internal(
         return Err(error);
     }
 
-    let transport_start = match child.snapshot().await {
+    let transport_start = match child.snapshot_with_shards().await {
         Ok(snapshot) => snapshot,
         Err(error) => {
             abort_perf(&mut perf).await;
@@ -439,7 +439,7 @@ async fn run_local_internal(
         return Err(error);
     }
 
-    let transport_end = match child.snapshot().await {
+    let transport_end = match child.snapshot_with_shards().await {
         Ok(snapshot) => snapshot,
         Err(error) => {
             cohort.abort();
@@ -466,6 +466,11 @@ async fn run_local_internal(
     let mut workload = aggregate.workload;
     workload.merge(server_report.workload);
 
+    let transport_shards = transport_shard_windows(
+        &transport_start.shard_metrics,
+        &transport_end.shard_metrics,
+        &transport_samples,
+    );
     let report = RunReport::assemble(
         collect_environment(),
         scenario.clone(),
@@ -474,9 +479,9 @@ async fn run_local_internal(
             workload,
             latency: aggregate.latency.summary(),
             transport: TransportWindowReport::from_snapshots(
-                transport_start,
-                transport_end,
-                transport_samples,
+                transport_start.metrics,
+                transport_end.metrics,
+                transport_samples.iter().map(|sample| sample.metrics),
             ),
             churn: None,
             resources: ResourceWindowsReport {
@@ -490,7 +495,8 @@ async fn run_local_internal(
             total_duration_ms: millis(total_started.elapsed()),
             measured_duration_ms,
         },
-    );
+    )
+    .with_transport_shards(transport_shards);
     Ok((report, capture))
 }
 
@@ -608,6 +614,12 @@ struct ClientAggregate {
     latency: LatencyHistogram,
 }
 
+#[derive(Debug)]
+struct ChildTransportSnapshot {
+    metrics: TransportMetricsReport,
+    shard_metrics: Vec<TransportShardMetricsReport>,
+}
+
 async fn collect_handshakes(
     cohort: &mut ClientCohort,
     loadgen_sampler: &mut ResourceSampler,
@@ -714,7 +726,7 @@ async fn sample_steady_local(
     steady_server: &mut ResourceAccumulator,
     steady_loadgen: &mut ResourceAccumulator,
     steady_host: &mut ResourceAccumulator,
-    transport_samples: &mut Vec<TransportMetricsReport>,
+    transport_samples: &mut Vec<ChildTransportSnapshot>,
 ) -> Result<(), RunnerError> {
     let mut ticker = steady_interval(Duration::from_secs(1));
     loop {
@@ -725,10 +737,38 @@ async fn sample_steady_local(
                 let loadgen = loadgen_sampler.sample();
                 push_process(steady_loadgen, loadgen);
                 push_host(steady_host, loadgen);
-                transport_samples.push(child.snapshot().await?);
+                transport_samples.push(child.snapshot_with_shards().await?);
             }
         }
     }
+}
+
+fn transport_shard_windows(
+    start: &[TransportShardMetricsReport],
+    end: &[TransportShardMetricsReport],
+    samples: &[ChildTransportSnapshot],
+) -> Vec<TransportShardWindowReport> {
+    start
+        .iter()
+        .filter_map(|start_shard| {
+            let end_shard = end
+                .iter()
+                .find(|shard| shard.shard_id == start_shard.shard_id)?;
+            let shard_samples = samples.iter().filter_map(|sample| {
+                sample
+                    .shard_metrics
+                    .iter()
+                    .find(|shard| shard.shard_id == start_shard.shard_id)
+                    .map(|shard| shard.metrics)
+            });
+            Some(TransportShardWindowReport::from_snapshots(
+                start_shard.shard_id,
+                start_shard.metrics,
+                end_shard.metrics,
+                shard_samples,
+            ))
+        })
+        .collect()
 }
 
 async fn abort_perf(perf: &mut Option<PerfSession>) {
@@ -892,9 +932,19 @@ impl ChildTarget {
     }
 
     async fn snapshot(&mut self) -> Result<TransportMetricsReport, RunnerError> {
+        Ok(self.snapshot_with_shards().await?.metrics)
+    }
+
+    async fn snapshot_with_shards(&mut self) -> Result<ChildTransportSnapshot, RunnerError> {
         self.send(&ChildCommand::Snapshot).await?;
         match self.recv().await? {
-            ChildEvent::Snapshot { metrics, .. } => Ok(metrics),
+            ChildEvent::Snapshot {
+                metrics,
+                shard_metrics,
+            } => Ok(ChildTransportSnapshot {
+                metrics,
+                shard_metrics,
+            }),
             ChildEvent::Error { message } => Err(RunnerError::ChildProtocol(message)),
             other => Err(RunnerError::ChildProtocol(format!(
                 "expected snapshot event, got {other:?}"
