@@ -178,92 +178,6 @@ pub struct ShardedSendPayload {
     pub priority: RakPriority,
 }
 
-#[derive(Debug, Default)]
-struct WorkerLoopDiagnostics {
-    commands_processed: u64,
-    recv_completions: u64,
-    outbound_ticks: u64,
-    outbound_datagrams: u64,
-    outbound_tick_overruns: u64,
-    max_outbound_tick_duration: Duration,
-    max_outbound_tick_lag: Duration,
-    max_command_queue_depth: usize,
-    max_event_queue_depth: usize,
-}
-
-impl WorkerLoopDiagnostics {
-    fn record_command(&mut self) {
-        self.commands_processed = self.commands_processed.saturating_add(1);
-    }
-
-    fn record_recv(&mut self) {
-        self.recv_completions = self.recv_completions.saturating_add(1);
-    }
-
-    fn record_outbound_tick(
-        &mut self,
-        duration: Duration,
-        lag: Duration,
-        datagrams: usize,
-        interval: Duration,
-    ) {
-        self.outbound_ticks = self.outbound_ticks.saturating_add(1);
-        self.outbound_datagrams = self
-            .outbound_datagrams
-            .saturating_add(u64::try_from(datagrams).unwrap_or(u64::MAX));
-        if duration > interval {
-            self.outbound_tick_overruns = self.outbound_tick_overruns.saturating_add(1);
-        }
-        self.max_outbound_tick_duration = self.max_outbound_tick_duration.max(duration);
-        self.max_outbound_tick_lag = self.max_outbound_tick_lag.max(lag);
-    }
-
-    fn observe_queues(&mut self, command_depth: usize, event_depth: usize) {
-        self.max_command_queue_depth = self.max_command_queue_depth.max(command_depth);
-        self.max_event_queue_depth = self.max_event_queue_depth.max(event_depth);
-    }
-
-    fn emit_and_reset(
-        &mut self,
-        shard_id: usize,
-        sessions: usize,
-        command_depth: usize,
-        event_depth: usize,
-        dropped_non_critical_events: u64,
-    ) {
-        eprintln!(
-            "ARDOSIA_SHARD_DIAG shard={shard_id} sessions={sessions} commands={} recv={} ticks={} tick_datagrams={} tick_max_us={} tick_overruns={} tick_lag_max_us={} command_queue={} command_queue_peak={} event_queue={} event_queue_peak={} dropped_events={dropped_non_critical_events}",
-            self.commands_processed,
-            self.recv_completions,
-            self.outbound_ticks,
-            self.outbound_datagrams,
-            self.max_outbound_tick_duration.as_micros(),
-            self.outbound_tick_overruns,
-            self.max_outbound_tick_lag.as_micros(),
-            command_depth,
-            self.max_command_queue_depth,
-            event_depth,
-            self.max_event_queue_depth,
-        );
-
-        self.commands_processed = 0;
-        self.recv_completions = 0;
-        self.outbound_ticks = 0;
-        self.outbound_datagrams = 0;
-        self.outbound_tick_overruns = 0;
-        self.max_outbound_tick_duration = Duration::ZERO;
-        self.max_outbound_tick_lag = Duration::ZERO;
-        self.max_command_queue_depth = command_depth;
-        self.max_event_queue_depth = event_depth;
-    }
-}
-
-fn shard_diagnostics_enabled() -> bool {
-    std::env::var("ARDOSIA_SHARD_DIAGNOSTICS")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
-}
-
 pub struct ShardedRuntimeHandle {
     pub event_rx: mpsc::Receiver<ShardedRuntimeEvent>,
     shutdown_tx: broadcast::Sender<()>,
@@ -449,8 +363,6 @@ async fn run_worker_loop(
     let mut metrics_tick = time::interval(cfg.metrics_emit_interval);
     metrics_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-    let diagnostics_enabled = shard_diagnostics_enabled();
-    let mut diagnostics = WorkerLoopDiagnostics::default();
     let mut dropped_non_critical_events = 0u64;
     let initial_dropped_snapshot = dropped_non_critical_events;
     send_non_critical_event(
@@ -466,13 +378,6 @@ async fn run_worker_loop(
     .await?;
 
     loop {
-        if diagnostics_enabled {
-            diagnostics.observe_queues(
-                command_rx.len(),
-                cfg.event_queue_capacity.saturating_sub(event_tx.capacity()),
-            );
-        }
-
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 send_critical_event(&event_tx, ShardedRuntimeEvent::WorkerStopped { shard_id }).await?;
@@ -481,41 +386,12 @@ async fn run_worker_loop(
 
             command = command_rx.recv() => {
                 if let Some(command) = command {
-                    if diagnostics_enabled {
-                        diagnostics.record_command();
-                    }
                     apply_command(&mut server, command);
                 }
             }
 
-            scheduled = outbound_tick.tick() => {
-                if diagnostics_enabled {
-                    let started = time::Instant::now();
-                    let lag = started.saturating_duration_since(scheduled);
-                    let result = server.tick_outbound(
-                        cfg.max_new_datagrams_per_session,
-                        cfg.max_new_bytes_per_session,
-                        cfg.max_resend_datagrams_per_session,
-                        cfg.max_resend_bytes_per_session,
-                    ).await;
-                    let duration = started.elapsed();
-
-                    match result {
-                        Ok(datagrams) => diagnostics.record_outbound_tick(
-                            duration,
-                            lag,
-                            datagrams,
-                            cfg.outbound_tick_interval,
-                        ),
-                        Err(e) => {
-                            let _ = send_critical_event(&event_tx, ShardedRuntimeEvent::WorkerError {
-                                shard_id,
-                                message: format!("outbound tick failed: {e}"),
-                            }).await;
-                            return Err(e);
-                        }
-                    }
-                } else if let Err(e) = server.tick_outbound(
+            _ = outbound_tick.tick() => {
+                if let Err(e) = server.tick_outbound(
                     cfg.max_new_datagrams_per_session,
                     cfg.max_new_bytes_per_session,
                     cfg.max_resend_datagrams_per_session,
@@ -530,20 +406,6 @@ async fn run_worker_loop(
             }
 
             _ = metrics_tick.tick() => {
-                let snapshot = server.metrics_snapshot();
-                if diagnostics_enabled {
-                    let command_depth = command_rx.len();
-                    let event_depth = cfg.event_queue_capacity.saturating_sub(event_tx.capacity());
-                    diagnostics.observe_queues(command_depth, event_depth);
-                    diagnostics.emit_and_reset(
-                        shard_id,
-                        snapshot.session_count,
-                        command_depth,
-                        event_depth,
-                        dropped_non_critical_events,
-                    );
-                }
-
                 let dropped_snapshot = dropped_non_critical_events;
                 send_non_critical_event(
                     &event_tx,
@@ -551,7 +413,7 @@ async fn run_worker_loop(
                     &mut dropped_non_critical_events,
                     ShardedRuntimeEvent::Metrics {
                         shard_id,
-                        snapshot: Box::new(snapshot),
+                        snapshot: Box::new(server.metrics_snapshot()),
                         dropped_non_critical_events: dropped_snapshot,
                     },
                 ).await?;
@@ -560,9 +422,6 @@ async fn run_worker_loop(
             recv_result = server.recv_and_process() => {
                 match recv_result {
                     Ok(event) => {
-                        if diagnostics_enabled {
-                            diagnostics.record_recv();
-                        }
                         send_non_critical_event(
                             &event_tx,
                             cfg.event_overflow_policy,
