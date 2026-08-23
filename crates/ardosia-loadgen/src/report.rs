@@ -6,7 +6,8 @@ use crate::resource::ResourceSummary;
 use crate::scenario::{Scenario, TrafficKind};
 use crate::workload::{TrafficCounts, WorkloadCounts};
 
-pub const VENDOR_REVISION: &str = "3edfb4170e6cb5aeed992b09b50176fb7e5b6079";
+pub const RAKNET_UPSTREAM_REVISION: &str = "3edfb4170e6cb5aeed992b09b50176fb7e5b6079";
+pub const RAKNET_HARDFORK_REVISION: &str = "f127fce27a206a51a1d39ffa7a9bbed98d10ea14";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RunReport {
@@ -20,21 +21,39 @@ pub struct RunReport {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EnvironmentReport {
     pub git_commit: Option<String>,
-    pub vendor_revision: String,
+    #[serde(default = "default_raknet_upstream_revision", alias = "vendor_revision")]
+    pub raknet_upstream_revision: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub raknet_hardfork_revision: String,
     pub rust_version: Option<String>,
     pub os: String,
     pub kernel: Option<String>,
     pub architecture: String,
     pub logical_cpus: Option<usize>,
     pub total_memory_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_limits: Option<ProcessLimitsReport>,
     pub build_profile: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessLimitsReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_files: Option<ResourceLimitReport>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceLimitReport {
+    pub soft: Option<u64>,
+    pub hard: Option<u64>,
 }
 
 impl Default for EnvironmentReport {
     fn default() -> Self {
         Self {
             git_commit: None,
-            vendor_revision: VENDOR_REVISION.into(),
+            raknet_upstream_revision: RAKNET_UPSTREAM_REVISION.into(),
+            raknet_hardfork_revision: RAKNET_HARDFORK_REVISION.into(),
             rust_version: None,
             os: std::env::consts::OS.into(),
             kernel: None,
@@ -43,6 +62,7 @@ impl Default for EnvironmentReport {
                 .ok()
                 .map(std::num::NonZeroUsize::get),
             total_memory_bytes: None,
+            process_limits: None,
             build_profile: if cfg!(debug_assertions) {
                 "debug".into()
             } else {
@@ -50,6 +70,10 @@ impl Default for EnvironmentReport {
             },
         }
     }
+}
+
+fn default_raknet_upstream_revision() -> String {
+    RAKNET_UPSTREAM_REVISION.into()
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
