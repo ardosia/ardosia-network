@@ -99,7 +99,9 @@ fn report_records_requested_and_effective_worker_shards() {
         effective_worker_shards: 4,
     });
 
-    let runtime = report.server_runtime.expect("local report runtime metadata");
+    let runtime = report
+        .server_runtime
+        .expect("local report runtime metadata");
     assert_eq!(runtime.requested_worker_shards, Some(4));
     assert_eq!(runtime.effective_worker_shards, 4);
 }
