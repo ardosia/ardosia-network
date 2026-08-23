@@ -19,11 +19,10 @@ pub fn collect_environment() -> EnvironmentReport {
     {
         report.total_memory_bytes =
             crate::resource::linux::read_meminfo().map(|memory| memory.total_bytes);
-        report.process_limits = crate::resource::linux::read_open_file_limits().map(|open_files| {
-            ProcessLimitsReport {
+        report.process_limits =
+            crate::resource::linux::read_open_file_limits().map(|open_files| ProcessLimitsReport {
                 open_files: Some(open_files),
-            }
-        });
+            });
     }
 
     report
