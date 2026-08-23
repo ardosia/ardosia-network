@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make benchmark reports record the active RakNet hardfork revision and the load-generator open-file limits that can create artificial client-admission ceilings.
+**Goal:** Make benchmark and profiling reports record the active RakNet hardfork revision and the load-generator open-file limits that can create artificial client-admission ceilings.
 
-**Architecture:** Keep environment metadata in `EnvironmentReport`, preserve compatibility when deserializing historical reports that used `vendor_revision`, and collect Linux process limits through `/proc/self/limits` without introducing a new dependency. Do not change runtime limits, RakNet policies, pass/fail gates, or transport behavior.
+**Architecture:** Keep environment metadata in `EnvironmentReport`, keep profiling metadata aligned in `ProfileMetadata`, preserve compatibility when deserializing historical artifacts that used `vendor_revision`, and collect Linux process limits through `/proc/self/limits` without introducing a new dependency. Do not change runtime limits, RakNet policies, pass/fail gates, or transport behavior.
 
-**Tech Stack:** Rust 1.88.0, serde/serde_json, Linux procfs, existing Ardosia loadgen report/environment modules.
+**Tech Stack:** Rust 1.88.0, serde/serde_json, Linux procfs, existing Ardosia loadgen report/environment/profiling modules.
 
 **Spec:** `docs/benchmarks.md`
 
@@ -15,8 +15,8 @@
 - Rust toolchain remains exactly `1.88.0` for the quality gate.
 - Do not add third-party dependencies.
 - Do not mutate file-descriptor limits or transport abuse-control defaults.
-- Historical reports containing `vendor_revision` must remain deserializable.
-- New reports must distinguish the preserved upstream RakNet baseline from the active hardfork revision.
+- Historical run/profile artifacts containing `vendor_revision` must remain deserializable.
+- New run/profile artifacts must distinguish the preserved upstream RakNet baseline from the active hardfork revision.
 - Non-Linux platforms must continue to build; process-limit metadata may be unavailable there.
 
 ---
@@ -25,38 +25,55 @@
 
 **Files:**
 - Modify: `crates/ardosia-loadgen/src/report.rs`
-- Test: `crates/ardosia-loadgen/tests/report.rs`
+- Modify: `crates/ardosia-loadgen/src/profiling.rs`
+- Modify: `crates/ardosia-loadgen/src/runner.rs`
+- Test: `crates/ardosia-loadgen/tests/environment.rs`
+- Test: `crates/ardosia-loadgen/tests/profiling.rs`
 
 **Interfaces:**
 - Produces: `EnvironmentReport::raknet_upstream_revision: String`
 - Produces: `EnvironmentReport::raknet_hardfork_revision: String`
+- Produces: `ProfileMetadata::raknet_upstream_revision: String`
+- Produces: `ProfileMetadata::raknet_hardfork_revision: String`
 - Produces: constants for upstream baseline `3edfb4170e6cb5aeed992b09b50176fb7e5b6079` and hardfork integration revision `f127fce27a206a51a1d39ffa7a9bbed98d10ea14`.
 
-- [ ] **Step 1: Write the failing serialization compatibility test**
+- [ ] **Step 1: Write the failing run-report serialization compatibility test**
 
-Verify that a default report serializes `raknet_upstream_revision` and `raknet_hardfork_revision`, omits `vendor_revision`, and that JSON containing the historical `vendor_revision` key can be deserialized then re-serialized under the new upstream key.
+Verify that a default environment report serializes `raknet_upstream_revision` and `raknet_hardfork_revision`, omits `vendor_revision`, and that JSON containing the historical `vendor_revision` key can be deserialized then re-serialized under the new upstream key.
 
 - [ ] **Step 2: Run the test and verify RED**
 
 Run:
 
 ```bash
-cargo +1.88.0 test -p ardosia-loadgen --locked --test report environment_revision_metadata_is_explicit_and_legacy_compatible -- --exact
+cargo +1.88.0 test -p ardosia-loadgen --locked --test environment environment_revision_metadata_is_explicit_and_legacy_compatible -- --exact
 ```
 
 Expected: FAIL because the new serialized keys are absent.
 
-- [ ] **Step 3: Implement the minimal serde-compatible schema change**
+- [ ] **Step 3: Implement the minimal serde-compatible environment schema change**
 
-Rename the Rust field to `raknet_upstream_revision`, add `#[serde(alias = "vendor_revision")]`, add the hardfork revision field with a default function, and update `EnvironmentReport::default()`.
+Rename the Rust field to `raknet_upstream_revision`, add `#[serde(alias = "vendor_revision")]`, add the hardfork revision field with a default for newly generated reports, and update `EnvironmentReport::default()`.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
-
-Run the same command and require PASS.
-
-- [ ] **Step 5: Guard the hardfork constant against Cargo pin drift**
+- [ ] **Step 4: Guard the hardfork constant against Cargo pin drift**
 
 Add a test that reads the workspace `Cargo.toml` with `include_str!` and asserts that the active hardfork revision constant appears in the exact `raknet-rust` dependency pin.
+
+- [ ] **Step 5: Align profiling metadata with the run-report schema**
+
+Add the same explicit upstream/hardfork fields to `ProfileMetadata`, accept historical `vendor_revision` on deserialization, and keep an absent historical hardfork revision empty rather than inventing modern provenance.
+
+- [ ] **Step 6: Propagate both revisions through profiling paths**
+
+Update normal capture, post-processing failure, missing-capture failure, and early profiling failure paths in `runner.rs` to forward `raknet_upstream_revision` and `raknet_hardfork_revision` from the collected environment.
+
+- [ ] **Step 7: Verify profiling compatibility**
+
+```bash
+cargo +1.88.0 test -p ardosia-loadgen --locked --test profiling profile_revision_metadata_is_explicit_and_legacy_compatible -- --exact
+```
+
+Require PASS and require serialized profile metadata to omit `vendor_revision`.
 
 ---
 
@@ -115,11 +132,11 @@ cargo +1.88.0 test -p ardosia-loadgen --locked --test environment --test resourc
 - Modify: `docs/benchmarks.md`
 
 **Interfaces:**
-- Consumes the new environment JSON fields from Tasks 1-2.
+- Consumes the new run/profile metadata and process-limit fields from Tasks 1-2.
 
 - [ ] **Step 1: Document interpretation**
 
-State that `raknet_upstream_revision` is provenance, `raknet_hardfork_revision` is the active pinned implementation, and `process_limits.open_files.soft` must be checked before interpreting an admission plateau as transport capacity.
+State that `raknet_upstream_revision` is provenance, `raknet_hardfork_revision` is the active pinned implementation, and `process_limits.open_files.soft` must be checked before interpreting an admission plateau as transport capacity. Note that historical artifacts may omit the hardfork field because no trustworthy value can be inferred retroactively.
 
 - [ ] **Step 2: Run the complete workspace gate**
 
@@ -132,4 +149,4 @@ git diff --check
 
 - [ ] **Step 3: Review scope**
 
-Require the final diff to contain only report/environment/resource parsing/tests/docs changes and no transport algorithm, runtime policy, or benchmark pass/fail threshold changes.
+Require the final diff to contain only report/environment/profiling metadata, profiling propagation, resource parsing, tests, and docs changes. No transport algorithm, runtime policy, or benchmark pass/fail threshold changes are allowed.
