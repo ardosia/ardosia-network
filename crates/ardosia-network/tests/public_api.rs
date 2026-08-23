@@ -6,7 +6,7 @@ use ardosia_network::{
 };
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig, RaknetClientEvent};
-use raknet_rust::low_level::protocol::Reliability as VendorReliability;
+use raknet_rust::low_level::protocol::Reliability as RaknetReliability;
 use tokio::time::timeout;
 
 fn allocate_loopback_addr() -> SocketAddr {
@@ -83,7 +83,7 @@ async fn protocol8_roundtrips_reliable_ordered_payload() {
         .send_with_options(
             Bytes::from_static(b"client-to-server"),
             ClientSendOptions {
-                reliability: VendorReliability::ReliableOrdered,
+                reliability: RaknetReliability::ReliableOrdered,
                 ..ClientSendOptions::default()
             },
         )

@@ -73,7 +73,7 @@ async fn raw_protocol11_request1_is_rejected_when_only_8_is_supported() {
 }
 
 #[tokio::test]
-async fn protocol8_vendor_client_reaches_ardosia_accept() {
+async fn protocol8_hardfork_client_reaches_ardosia_accept() {
     let addr = allocate_loopback_addr();
     let mut server = NetworkServer::bind(network_config(addr)).await.unwrap();
 
