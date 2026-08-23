@@ -1,6 +1,8 @@
 use std::process::Command;
 
-use crate::report::{EnvironmentReport, ProcessLimitsReport};
+use crate::report::EnvironmentReport;
+#[cfg(target_os = "linux")]
+use crate::report::ProcessLimitsReport;
 
 pub fn collect_environment() -> EnvironmentReport {
     let mut report = EnvironmentReport {
