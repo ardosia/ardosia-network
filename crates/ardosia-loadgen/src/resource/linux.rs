@@ -1,5 +1,7 @@
 use std::fs;
 
+use crate::report::ResourceLimitReport;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpuTicks {
     pub total: u64,
@@ -61,6 +63,22 @@ pub fn parse_meminfo(input: &str) -> Option<MemoryInfo> {
     })
 }
 
+pub fn parse_open_file_limits(input: &str) -> Option<ResourceLimitReport> {
+    let line = input
+        .lines()
+        .find(|line| line.trim_start().starts_with("Max open files"))?;
+    let mut fields = line.split_whitespace();
+
+    if fields.next()? != "Max" || fields.next()? != "open" || fields.next()? != "files" {
+        return None;
+    }
+
+    Some(ResourceLimitReport {
+        soft: parse_limit_value(fields.next()?)?,
+        hard: parse_limit_value(fields.next()?)?,
+    })
+}
+
 pub(crate) fn read_host_cpu_ticks() -> Option<CpuTicks> {
     parse_host_cpu_ticks(&fs::read_to_string("/proc/stat").ok()?)
 }
@@ -77,6 +95,10 @@ pub(crate) fn read_meminfo() -> Option<MemoryInfo> {
     parse_meminfo(&fs::read_to_string("/proc/meminfo").ok()?)
 }
 
+pub(crate) fn read_open_file_limits() -> Option<ResourceLimitReport> {
+    parse_open_file_limits(&fs::read_to_string("/proc/self/limits").ok()?)
+}
+
 fn parse_kib_line(line: &str) -> Option<u64> {
     let mut fields = line.split_whitespace();
     let _name = fields.next()?;
@@ -86,4 +108,12 @@ fn parse_kib_line(line: &str) -> Option<u64> {
         return None;
     }
     Some(kib.saturating_mul(1024))
+}
+
+fn parse_limit_value(value: &str) -> Option<Option<u64>> {
+    if value == "unlimited" {
+        Some(None)
+    } else {
+        value.parse().ok().map(Some)
+    }
 }
