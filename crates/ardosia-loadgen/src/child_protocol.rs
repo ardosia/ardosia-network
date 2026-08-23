@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::report::TransportMetricsReport;
+use crate::report::{TransportMetricsReport, TransportShardMetricsReport};
 use crate::scenario::Scenario;
 use crate::server_target;
 use crate::workload::WorkloadCounts;
@@ -16,6 +16,8 @@ pub enum ChildCommand {
     Start {
         bind_addr: String,
         scenario: Scenario,
+        #[serde(default)]
+        worker_shards: Option<usize>,
     },
     BeginMeasurement,
     EndMeasurement,
@@ -29,12 +31,22 @@ pub enum ChildCommand {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChildEvent {
-    Ready { pid: u32 },
+    Ready {
+        pid: u32,
+    },
     MeasurementStarted,
     MeasurementEnded,
-    Snapshot { metrics: TransportMetricsReport },
-    Stopped { report: Box<ServerRunReport> },
-    Error { message: String },
+    Snapshot {
+        metrics: TransportMetricsReport,
+        #[serde(default)]
+        shard_metrics: Vec<TransportShardMetricsReport>,
+    },
+    Stopped {
+        report: Box<ServerRunReport>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -97,6 +109,7 @@ where
             ChildCommand::Start {
                 bind_addr,
                 scenario,
+                worker_shards,
             } => {
                 if server.is_some() {
                     write_event(
@@ -112,7 +125,7 @@ where
                 let address: SocketAddr = bind_addr
                     .parse()
                     .map_err(|_| ChildProtocolError::InvalidBindAddress(bind_addr.clone()))?;
-                let handle = server_target::spawn_local_target(address, scenario)
+                let handle = server_target::spawn_local_target(address, scenario, worker_shards)
                     .await
                     .map_err(|error| ChildProtocolError::Server(error.to_string()))?;
                 server = Some(handle);
@@ -163,14 +176,19 @@ where
                     .await?;
                     continue;
                 };
-                let metrics = handle
+                let snapshot = handle
                     .snapshot()
                     .await
                     .map_err(|error| ChildProtocolError::Server(error.to_string()))?;
                 write_event(
                     &mut writer,
                     &ChildEvent::Snapshot {
-                        metrics: metrics.transport.into(),
+                        metrics: snapshot.metrics.transport.into(),
+                        shard_metrics: snapshot
+                            .shard_metrics
+                            .into_iter()
+                            .map(TransportShardMetricsReport::from)
+                            .collect(),
                     },
                 )
                 .await?;

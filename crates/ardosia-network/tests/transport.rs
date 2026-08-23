@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use ardosia_network::{NetworkConfig, NetworkServer};
+use ardosia_network::{NetworkConfig, NetworkRuntimeConfig, NetworkServer};
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig};
 use raknet_rust::low_level::protocol::Reliability as VendorReliability;
@@ -17,6 +17,7 @@ fn network_config(addr: SocketAddr) -> NetworkConfig {
         bind_addr: addr,
         raknet_protocols: vec![8],
         max_connections: 32,
+        runtime: NetworkRuntimeConfig::default(),
     }
 }
 

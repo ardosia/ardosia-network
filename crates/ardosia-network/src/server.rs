@@ -6,7 +6,7 @@ use tokio::task::JoinHandle;
 
 use crate::backend::{BackendCommand, COMMAND_QUEUE_CAPACITY, run_backend};
 use crate::connection::Connection;
-use crate::{MetricsState, NetworkConfig, NetworkError, NetworkMetrics};
+use crate::{MetricsState, NetworkConfig, NetworkError, NetworkMetrics, NetworkShardMetrics};
 
 pub struct NetworkServer {
     accept_rx: mpsc::Receiver<Result<Connection, NetworkError>>,
@@ -18,10 +18,11 @@ pub struct NetworkServer {
 impl NetworkServer {
     pub async fn bind(config: NetworkConfig) -> Result<Self, NetworkError> {
         let transport = config.to_vendor_transport_config()?;
-        let vendor = RaknetServer::builder()
-            .transport_config(transport)
-            .start()
-            .await?;
+        let mut builder = RaknetServer::builder().transport_config(transport);
+        if let Some(worker_shards) = config.runtime.worker_shards {
+            builder = builder.shard_count(worker_shards);
+        }
+        let vendor = builder.start().await?;
 
         let (accept_tx, accept_rx) = mpsc::channel(config.max_connections);
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
@@ -51,6 +52,10 @@ impl NetworkServer {
 
     pub fn metrics(&self) -> NetworkMetrics {
         self.metrics.snapshot()
+    }
+
+    pub fn shard_metrics(&self) -> Vec<NetworkShardMetrics> {
+        self.metrics.shard_metrics()
     }
 
     pub async fn shutdown(self) -> Result<(), NetworkError> {

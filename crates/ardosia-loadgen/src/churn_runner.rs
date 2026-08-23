@@ -573,6 +573,7 @@ impl ChildTarget {
             .send(&ChildCommand::Start {
                 bind_addr: bind_addr.to_string(),
                 scenario: scenario.clone(),
+                worker_shards: crate::runtime_override::worker_shards(),
             })
             .await
         {
@@ -631,7 +632,7 @@ impl ChildTarget {
     async fn snapshot(&mut self) -> Result<TransportMetricsReport, RunnerError> {
         self.send(&ChildCommand::Snapshot).await?;
         match self.recv().await? {
-            ChildEvent::Snapshot { metrics } => Ok(metrics),
+            ChildEvent::Snapshot { metrics, .. } => Ok(metrics),
             ChildEvent::Error { message } => Err(RunnerError::ChildProtocol(message)),
             other => Err(RunnerError::ChildProtocol(format!(
                 "expected snapshot event, got {other:?}"

@@ -2,7 +2,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use ardosia_network::{
-    Connection, NetworkConfig, NetworkError, NetworkMetrics, NetworkServer, Reliability,
+    Connection, NetworkConfig, NetworkError, NetworkMetrics, NetworkRuntimeConfig, NetworkServer,
+    NetworkShardMetrics, Reliability,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
@@ -25,9 +26,15 @@ pub(crate) struct ServerTargetResult {
     pub(crate) send_errors: usize,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct ServerTargetSnapshot {
+    pub(crate) metrics: NetworkMetrics,
+    pub(crate) shard_metrics: Vec<NetworkShardMetrics>,
+}
+
 pub(crate) struct ServerTargetHandle {
     measure_tx: watch::Sender<bool>,
-    snapshot_tx: mpsc::Sender<oneshot::Sender<NetworkMetrics>>,
+    snapshot_tx: mpsc::Sender<oneshot::Sender<ServerTargetSnapshot>>,
     stop_tx: watch::Sender<bool>,
     task: JoinHandle<Result<ServerTargetResult, RunnerError>>,
 }
@@ -41,7 +48,7 @@ impl ServerTargetHandle {
         let _ = self.measure_tx.send(false);
     }
 
-    pub(crate) async fn snapshot(&self) -> Result<NetworkMetrics, RunnerError> {
+    pub(crate) async fn snapshot(&self) -> Result<ServerTargetSnapshot, RunnerError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.snapshot_tx
             .send(response_tx)
@@ -63,11 +70,13 @@ impl ServerTargetHandle {
 pub(crate) async fn spawn_local_target(
     bind_addr: SocketAddr,
     scenario: Scenario,
+    worker_shards: Option<usize>,
 ) -> Result<ServerTargetHandle, RunnerError> {
     let server = NetworkServer::bind(NetworkConfig {
         bind_addr,
         raknet_protocols: vec![scenario.protocol_version],
         max_connections: scenario.benchmark_max_connections(),
+        runtime: NetworkRuntimeConfig { worker_shards },
     })
     .await?;
 
@@ -99,6 +108,7 @@ pub(crate) async fn serve_until(
         bind_addr,
         raknet_protocols: vec![protocol_version],
         max_connections,
+        runtime: NetworkRuntimeConfig::default(),
     })
     .await?;
 
@@ -109,7 +119,7 @@ async fn run_benchmark_server_loop(
     mut server: NetworkServer,
     scenario: Scenario,
     measure_rx: watch::Receiver<bool>,
-    mut snapshot_rx: mpsc::Receiver<oneshot::Sender<NetworkMetrics>>,
+    mut snapshot_rx: mpsc::Receiver<oneshot::Sender<ServerTargetSnapshot>>,
     mut stop_rx: watch::Receiver<bool>,
 ) -> Result<ServerTargetResult, RunnerError> {
     let mut tasks = JoinSet::new();
@@ -128,7 +138,10 @@ async fn run_benchmark_server_loop(
             }
             snapshot = snapshot_rx.recv() => {
                 if let Some(response) = snapshot {
-                    let _ = response.send(server.metrics());
+                    let _ = response.send(ServerTargetSnapshot {
+                        metrics: server.metrics(),
+                        shard_metrics: server.shard_metrics(),
+                    });
                 }
             }
             accepted = server.accept() => {

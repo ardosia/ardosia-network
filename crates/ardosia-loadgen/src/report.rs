@@ -1,4 +1,4 @@
-use ardosia_network::TransportMetrics;
+use ardosia_network::{NetworkRuntimeConfig, TransportMetrics};
 use serde::{Deserialize, Serialize};
 
 use crate::latency::LatencySummary;
@@ -12,6 +12,8 @@ pub const VENDOR_REVISION: &str = "3edfb4170e6cb5aeed992b09b50176fb7e5b6079";
 pub struct RunReport {
     pub environment: EnvironmentReport,
     pub scenario: Scenario,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_runtime: Option<ServerRuntimeReport>,
     pub results: ResultsReport,
 }
 
@@ -46,6 +48,24 @@ impl Default for EnvironmentReport {
             } else {
                 "release".into()
             },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ServerRuntimeReport {
+    pub requested_worker_shards: Option<usize>,
+    pub effective_worker_shards: usize,
+}
+
+impl ServerRuntimeReport {
+    pub fn from_worker_shards(requested_worker_shards: Option<usize>) -> Self {
+        let runtime = NetworkRuntimeConfig {
+            worker_shards: requested_worker_shards,
+        };
+        Self {
+            requested_worker_shards,
+            effective_worker_shards: runtime.effective_worker_shards(),
         }
     }
 }
@@ -85,6 +105,8 @@ pub struct ResultsReport {
     pub workload: WorkloadReport,
     pub latency: LatencySummary,
     pub transport: TransportWindowReport,
+    #[serde(default)]
+    pub transport_shards: Vec<TransportShardWindowReport>,
     pub churn: Option<ChurnReport>,
     pub resources: ResourceWindowsReport,
     pub total_duration_ms: u64,
@@ -356,11 +378,14 @@ impl RunReport {
         Self {
             environment,
             scenario,
+            server_runtime: crate::runtime_override::worker_shards_setting()
+                .map(ServerRuntimeReport::from_worker_shards),
             results: ResultsReport {
                 correctness: input.correctness,
                 workload,
                 latency: input.latency,
                 transport: input.transport,
+                transport_shards: Vec::new(),
                 churn: input.churn,
                 resources: input.resources,
                 total_duration_ms: input.total_duration_ms,
@@ -369,6 +394,11 @@ impl RunReport {
                 failure_reasons,
             },
         }
+    }
+
+    pub fn with_server_runtime(mut self, server_runtime: ServerRuntimeReport) -> Self {
+        self.server_runtime = Some(server_runtime);
+        self
     }
 }
 

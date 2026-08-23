@@ -8,13 +8,13 @@ mod metrics;
 mod reliability;
 mod server;
 
-pub use config::NetworkConfig;
+pub use config::{NetworkConfig, NetworkRuntimeConfig};
 pub use connection::Connection;
 pub use error::NetworkError;
 pub use metrics::{
-    NetworkMetrics, TransportMetrics, TransportOrderingMetrics, TransportQueueMetrics,
-    TransportReliabilityMetrics, TransportSessionMetrics, TransportTimingMetrics,
-    TransportTrafficMetrics,
+    NetworkMetrics, NetworkShardMetrics, TransportMetrics, TransportOrderingMetrics,
+    TransportQueueMetrics, TransportReliabilityMetrics, TransportSessionMetrics,
+    TransportTimingMetrics, TransportTrafficMetrics,
 };
 pub use reliability::Reliability;
 pub use server::NetworkServer;
