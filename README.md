@@ -12,7 +12,7 @@ Ardosia currently targets the historical Minecraft: Pocket Edition 0.15.10 stack
 
 - MCPE game protocol: `84`
 - RakNet protocol: `8`
-- Rust: `1.88+`
+- Rust: `1.98+`
 - RakNet package: `raknet-rust` `0.2.0`
 - hardfork repository: `ardosia/ardosia-raknet`
 - exact pinned hardfork revision: `f127fce27a206a51a1d39ffa7a9bbed98d10ea14`
@@ -104,16 +104,16 @@ Because the hardfork repository is private, a development machine must have GitH
 
 ## Verification
 
-Run the workspace quality gate on Rust 1.88.0:
+Run the workspace quality gate on Rust 1.98.0:
 
 ```bash
-cargo +1.88.0 fmt --all -- --check
-CARGO_NET_GIT_FETCH_WITH_CLI=true cargo +1.88.0 clippy --workspace --all-targets --locked -- -D warnings
-CARGO_NET_GIT_FETCH_WITH_CLI=true cargo +1.88.0 test --workspace --locked
+cargo +1.98.0 fmt --all -- --check
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo +1.98.0 test --workspace --locked
 git diff --check
 ```
 
-GitHub Actions remain manual-only so hosted runner time is not consumed on every development commit.
+`rust-toolchain.toml` and the manual GitHub Actions workflow are pinned to Rust `1.98.0`, so local and CI verification use the same compiler, rustfmt, and Clippy baseline. GitHub Actions remain manual-only so hosted runner time is not consumed on every development commit.
 
 ## Historical benchmark evidence
 
