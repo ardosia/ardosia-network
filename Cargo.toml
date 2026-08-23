@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "crates/ardosia-network",
-    "crates/ardosia-loadgen",
 ]
 resolver = "3"
 
@@ -13,13 +12,4 @@ rust-version = "1.88"
 bytes = "1.8"
 thiserror = "2.0"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal", "process", "io-util", "io-std", "fs"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
-clap = { version = "4.5", features = ["derive"] }
 raknet-rust = { git = "https://github.com/ardosia/ardosia-raknet", rev = "f127fce27a206a51a1d39ffa7a9bbed98d10ea14" }
-
-[profile.profiling]
-inherits = "release"
-debug = 1
-strip = false

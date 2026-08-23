@@ -1,6 +1,0 @@
-name = "connect-300"
-clients = 300
-protocol_version = 8
-ramp_up_seconds = 10
-hold_seconds = 60
-connect_timeout_seconds = 5
