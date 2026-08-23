@@ -10,7 +10,7 @@ fn allocate_loopback_addr() -> SocketAddr {
 
 #[tokio::test]
 async fn bound_server_exposes_effective_abuse_control_policy() {
-    let mut server = NetworkServer::bind(NetworkConfig {
+    let server = NetworkServer::bind(NetworkConfig {
         bind_addr: allocate_loopback_addr(),
         raknet_protocols: vec![8],
         max_connections: 32,
