@@ -82,6 +82,16 @@ fn child_commands_and_events_roundtrip_json() {
     ));
 }
 
+#[test]
+fn historical_server_run_report_without_policy_remains_readable() {
+    let mut legacy = serde_json::to_value(ServerRunReport::default()).unwrap();
+    legacy.as_object_mut().unwrap().remove("policy");
+
+    let decoded: ServerRunReport = serde_json::from_value(legacy).unwrap();
+
+    assert_eq!(decoded.policy, None);
+}
+
 #[tokio::test]
 async fn child_session_obeys_ready_measure_end_stop_order_and_reaps_server_task() {
     let bind_addr = allocate_loopback_addr();
@@ -123,6 +133,28 @@ async fn child_session_obeys_ready_measure_end_stop_order_and_reaps_server_task(
     match stopped {
         ChildEvent::Stopped { report } => {
             assert_eq!(report.metrics.connected_current, 0);
+            let policy = report
+                .policy
+                .expect("bound child server must report its effective network policy");
+            assert_eq!(policy.packet_window.per_ip_packet_limit, 120);
+            assert_eq!(policy.packet_window.global_packet_limit, 100_000);
+            assert_eq!(policy.packet_window.window_ms, 10);
+            assert_eq!(policy.packet_window.block_duration_ms, 10_000);
+            assert!(policy.processing_budget.enabled);
+            assert_eq!(
+                policy.processing_budget.per_ip_refill_units_per_sec,
+                3_000_000
+            );
+            assert_eq!(
+                policy.processing_budget.per_ip_burst_units,
+                1_500_000
+            );
+            assert_eq!(
+                policy.processing_budget.global_refill_units_per_sec,
+                128_000_000
+            );
+            assert_eq!(policy.processing_budget.global_burst_units, 32_000_000);
+            assert_eq!(policy.processing_budget.bucket_idle_ttl_ms, 30_000);
         }
         other => panic!("unexpected event: {other:?}"),
     }
