@@ -4,7 +4,7 @@ use std::time::Duration;
 use ardosia_network::{NetworkConfig, NetworkRuntimeConfig, NetworkServer};
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig};
-use raknet_rust::low_level::protocol::Reliability as VendorReliability;
+use raknet_rust::low_level::protocol::Reliability as RaknetReliability;
 use tokio::time::timeout;
 
 fn allocate_loopback_addr() -> SocketAddr {
@@ -45,7 +45,7 @@ async fn fragmented_reliable_ordered_payload_reassembles() {
         .send_with_options(
             payload.clone(),
             ClientSendOptions {
-                reliability: VendorReliability::ReliableOrdered,
+                reliability: RaknetReliability::ReliableOrdered,
                 ..ClientSendOptions::default()
             },
         )
