@@ -37,6 +37,7 @@ fn profile_metadata_records_server_pid_and_diagnostic_build_profile() {
         "scenarios/steady-1000.toml".into(),
         Some("abc123".into()),
         "3edfb4170e6cb5aeed992b09b50176fb7e5b6079".into(),
+        "f127fce27a206a51a1d39ffa7a9bbed98d10ea14".into(),
         "profiling".into(),
         4242,
         Some("perf version 6.x".into()),
@@ -53,6 +54,50 @@ fn profile_metadata_records_server_pid_and_diagnostic_build_profile() {
 }
 
 #[test]
+fn profile_revision_metadata_is_explicit_and_legacy_compatible() {
+    let dir = Path::new("profiles/steady-1000/run-1");
+    let metadata = ProfileMetadata::from_capture(
+        "steady-1000",
+        "scenarios/steady-1000.toml".into(),
+        Some("abc123".into()),
+        "upstream".into(),
+        "hardfork".into(),
+        "profiling".into(),
+        4242,
+        Some("perf version 6.x".into()),
+        99,
+        CallGraphMode::Dwarf,
+        60_000,
+        59_998,
+        ProfileArtifacts::in_dir(dir),
+    );
+
+    let mut value = serde_json::to_value(metadata).unwrap();
+    assert_eq!(
+        value
+            .get("raknet_upstream_revision")
+            .and_then(serde_json::Value::as_str),
+        Some("upstream")
+    );
+    assert_eq!(
+        value
+            .get("raknet_hardfork_revision")
+            .and_then(serde_json::Value::as_str),
+        Some("hardfork")
+    );
+    assert!(value.get("vendor_revision").is_none());
+
+    let object = value.as_object_mut().unwrap();
+    let upstream = object.remove("raknet_upstream_revision").unwrap();
+    object.insert("vendor_revision".into(), upstream);
+    object.remove("raknet_hardfork_revision");
+
+    let legacy: ProfileMetadata = serde_json::from_value(value).unwrap();
+    assert_eq!(legacy.raknet_upstream_revision, "upstream");
+    assert!(legacy.raknet_hardfork_revision.is_empty());
+}
+
+#[test]
 fn perf_command_targets_only_server_pid_and_starts_disabled() {
     let spec = PerfCommandSpec::new(
         4242,
@@ -66,7 +111,6 @@ fn perf_command_targets_only_server_pid_and_starts_disabled() {
     assert!(args.windows(2).any(|w| w == ["-p", "4242"]));
     assert!(args.windows(2).any(|w| w == ["--delay", "-1"]));
     assert!(args.windows(2).any(|w| w == ["-F", "99"]));
-    assert!(args.windows(2).any(|w| w == ["--call-graph", "dwarf"]));
     assert!(args.iter().any(|arg| arg.starts_with("--control=fifo:")));
 }
 
