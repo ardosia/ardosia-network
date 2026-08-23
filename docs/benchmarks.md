@@ -1,21 +1,23 @@
 # Ardosia RakNet scaling benchmarks
 
-The scaling benchmark is designed to run the server target and load generator as separate processes so CPU and RSS can be reported independently. Linux is the preferred benchmark host because `/proc` provides the process and host resource counters used by the sampler. On other operating systems, unsupported resource fields may be absent without failing the correctness gate.
+The scaling benchmark runs the server target and load generator as separate processes so CPU and RSS can be reported independently. Linux is the preferred benchmark host because `/proc` provides the process and host resource counters used by the sampler. On other operating systems, unsupported resource fields may be absent without failing the correctness gate.
 
 ## Before a heavy run
 
 Use a quiet machine, close unrelated high-load applications, and run from the repository root on the exact commit you want to characterize.
 
-Verify the source tree first:
+Verify the source tree first on Rust 1.88.0:
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
+cargo +1.88.0 fmt --all -- --check
+cargo +1.88.0 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.88.0 test --workspace --locked
+git diff --check
 ```
 
-The report records best-effort environment information including the Git commit, Rust version, OS/kernel, architecture, logical CPU count, total memory, build profile, and the pinned RakNet vendor revision.
+The standalone `ardosia-raknet` repository owns its own transport-level formatting, Clippy, unit, integration, and soak gates. This repository validates the Ardosia integration against the exact hardfork revision pinned in `Cargo.toml` and `Cargo.lock`.
+
+The report records best-effort environment information including the Git commit, Rust version, OS/kernel, architecture, logical CPU count, total memory, and build profile. Historical report fields may retain the original upstream baseline identifier; the effective RakNet implementation for a run is reproducibly defined by the workspace lockfile.
 
 ## 300-client steady-state gate
 
@@ -57,6 +59,19 @@ The full-load 1000-client scenario is also available when throughput scaling rat
 cargo run --release -p ardosia-loadgen -- local scenarios/steady-1000.toml > steady-1000.json
 ```
 
+## Shard-scaling interpretation
+
+Shard-count experiments are environment-sensitive and must be interpreted together with host and abuse-control limits.
+
+The completed investigation established two important artificial ceilings:
+
+- the roughly 1,012-client admission wall was the load-generator process `RLIMIT_NOFILE=1024`, not a demonstrated transport capacity limit;
+- severe 3,000-client degradation at low shard counts was caused by all localhost clients sharing one connected per-IP processing budget.
+
+Increasing only the experimental localhost processing budget restored healthy 3,000-client runs at higher shard counts. In the observed failing 3,000-client case, Linux UDP receive-buffer exhaustion was not the cause (`RcvbufErrors=0`, `InErrors=0`).
+
+These are benchmark/harness findings. They must not be used as justification for weakening production abuse-control defaults.
+
 ## Server-only CPU profiling
 
 Profiling is Linux-only and intentionally remains a local/manual diagnostic workflow. It does not run from GitHub Actions and it does not change kernel perf policy automatically.
@@ -76,13 +91,13 @@ cargo run --profile profiling -p ardosia-loadgen -- \
   --output profiles/steady-1000
 ```
 
-The parent load generator already owns the real benchmark child process and therefore knows its PID. The profiler attaches to that server PID automatically; there is no manual PID race.
+The parent load generator owns the real benchmark child process and therefore knows its PID. The profiler attaches to that server PID automatically; there is no manual PID race.
 
 The capture is restricted to the measured steady window. Ramp/handshake setup happens before `perf` is enabled, and profiling stops before measurement teardown so cleanup work does not contaminate the steady CPU profile.
 
 A run directory is created under the requested output root, normally `profiles/<scenario>/<run-id>/`, and contains the machine-readable benchmark report plus profiling metadata and derived artifacts such as `perf.data`, the text report, folded stacks, and a flamegraph. Raw `perf.data` can be large and should remain an untracked local artifact.
 
-Profiler overhead means CPU/resource numbers from a profiling run are diagnostic and should not replace an ordinary release-mode capacity baseline. A hotspot is evidence for investigation, not an automatic reason to patch the vendored RakNet implementation.
+Profiler overhead means CPU/resource numbers from a profiling run are diagnostic and should not replace an ordinary release-mode capacity baseline. A hotspot is evidence for investigation, not an automatic reason to patch the RakNet hardfork.
 
 ## Constant-population churn
 
@@ -145,4 +160,4 @@ Compare results from the same machine/environment rather than mixing hosts. If a
 
 ## GitHub Actions fallback
 
-`.github/workflows/baseline.yml` is manual-only and exposes the benchmark scenarios as explicit choices, including `churn-500`. Heavy hosted runs are optional; local release-mode results on a controlled machine are preferred for performance characterization. Profiling is intentionally not part of the Actions workflow.
+`.github/workflows/baseline.yml` is manual-only and exposes benchmark scenarios as explicit choices. Heavy hosted runs are optional; local release-mode results on a controlled machine are preferred for performance characterization. Profiling is intentionally not part of the Actions workflow.

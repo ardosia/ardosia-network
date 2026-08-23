@@ -17,8 +17,6 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Lint workspace
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test workspace
-        run: cargo test --workspace
-      - name: Test vendored RakNet library
-        run: cargo test --manifest-path vendor/raknet-rust/Cargo.toml --lib
+        run: cargo test --workspace --locked
