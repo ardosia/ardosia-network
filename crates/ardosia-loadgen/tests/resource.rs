@@ -2,7 +2,8 @@ use ardosia_loadgen::resource::{ResourceAccumulator, ResourcePoint};
 
 #[cfg(target_os = "linux")]
 use ardosia_loadgen::resource::linux::{
-    parse_host_cpu_ticks, parse_meminfo, parse_process_cpu_ticks, parse_process_rss_bytes,
+    parse_host_cpu_ticks, parse_meminfo, parse_open_file_limits, parse_process_cpu_ticks,
+    parse_process_rss_bytes,
 };
 
 #[cfg(target_os = "linux")]
@@ -31,6 +32,24 @@ fn parses_proc_fixture_values() {
     assert_eq!(memory.total_bytes, 8_192_000);
     assert_eq!(memory.available_bytes, 3_072_000);
     assert_eq!(memory.used_bytes, 5_120_000);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn parses_open_file_limit_fixture_values() {
+    let finite = parse_open_file_limits(
+        "Limit                     Soft Limit           Hard Limit           Units\nMax open files            1024                 524288               files\n",
+    )
+    .unwrap();
+    assert_eq!(finite.soft, Some(1_024));
+    assert_eq!(finite.hard, Some(524_288));
+
+    let unlimited = parse_open_file_limits(
+        "Limit                     Soft Limit           Hard Limit           Units\nMax open files            unlimited            unlimited            files\n",
+    )
+    .unwrap();
+    assert_eq!(unlimited.soft, None);
+    assert_eq!(unlimited.hard, None);
 }
 
 #[test]
