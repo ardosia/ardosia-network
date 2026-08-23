@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use raknet_rust::low_level::transport::{ShardedRuntimeConfig, TransportConfig};
 
@@ -16,6 +17,52 @@ impl NetworkRuntimeConfig {
     pub fn effective_worker_shards(self) -> usize {
         self.worker_shards
             .unwrap_or_else(|| ShardedRuntimeConfig::default().shard_count)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NetworkPacketWindowPolicy {
+    pub per_ip_packet_limit: usize,
+    pub global_packet_limit: usize,
+    pub window: Duration,
+    pub block_duration: Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NetworkProcessingBudgetPolicy {
+    pub enabled: bool,
+    pub per_ip_refill_units_per_sec: u32,
+    pub per_ip_burst_units: u32,
+    pub global_refill_units_per_sec: u32,
+    pub global_burst_units: u32,
+    pub bucket_idle_ttl: Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NetworkPolicySnapshot {
+    pub packet_window: NetworkPacketWindowPolicy,
+    pub processing_budget: NetworkProcessingBudgetPolicy,
+}
+
+impl NetworkPolicySnapshot {
+    pub(crate) fn from_transport_config(config: &TransportConfig) -> Self {
+        let processing_budget = config.processing_budget;
+        Self {
+            packet_window: NetworkPacketWindowPolicy {
+                per_ip_packet_limit: config.per_ip_packet_limit,
+                global_packet_limit: config.global_packet_limit,
+                window: config.rate_window,
+                block_duration: config.block_duration,
+            },
+            processing_budget: NetworkProcessingBudgetPolicy {
+                enabled: processing_budget.enabled,
+                per_ip_refill_units_per_sec: processing_budget.per_ip_refill_units_per_sec,
+                per_ip_burst_units: processing_budget.per_ip_burst_units,
+                global_refill_units_per_sec: processing_budget.global_refill_units_per_sec,
+                global_burst_units: processing_budget.global_burst_units,
+                bucket_idle_ttl: processing_budget.bucket_idle_ttl,
+            },
+        }
     }
 }
 
