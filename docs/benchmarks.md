@@ -17,7 +17,9 @@ git diff --check
 
 The standalone `ardosia-raknet` repository owns its own transport-level formatting, Clippy, unit, integration, and soak gates. This repository validates the Ardosia integration against the exact hardfork revision pinned in `Cargo.toml` and `Cargo.lock`.
 
-The report records best-effort environment information including the Git commit, Rust version, OS/kernel, architecture, logical CPU count, total memory, and build profile. Historical report fields may retain the original upstream baseline identifier; the effective RakNet implementation for a run is reproducibly defined by the workspace lockfile.
+The report records best-effort environment information including the Git commit, Rust version, OS/kernel, architecture, logical CPU count, total memory, build profile, RakNet provenance, and process ceilings when available. `environment.raknet_upstream_revision` identifies the preserved upstream baseline and is provenance only; `environment.raknet_hardfork_revision` identifies the active hardfork revision used by newly generated reports and is guarded against the exact workspace pin. Historical JSON that used `vendor_revision` remains readable and is re-serialized as `raknet_upstream_revision`; historical artifacts that never recorded a hardfork revision are not retroactively attributed to the current hardfork.
+
+On Linux, `environment.process_limits.open_files` records the load-generator process soft and hard open-file limits observed at report collection time. Treat `soft` as the immediately enforceable ceiling for the process. A session-admission plateau close to that limit must be investigated as a harness/process ceiling before it is described as RakNet or server capacity. `null` for an individual bound means the kernel reported that bound as unlimited; the entire process-limit block may be absent on unsupported platforms or when the information cannot be collected.
 
 ## 300-client steady-state gate
 
@@ -68,6 +70,8 @@ The completed investigation established two important artificial ceilings:
 - the roughly 1,012-client admission wall was the load-generator process `RLIMIT_NOFILE=1024`, not a demonstrated transport capacity limit;
 - severe 3,000-client degradation at low shard counts was caused by all localhost clients sharing one connected per-IP processing budget.
 
+New Linux reports make the first ceiling directly visible as `environment.process_limits.open_files.soft` and `.hard`. Check those fields before interpreting a client-admission plateau. They are observational metadata only: the load generator does not raise or otherwise mutate the process limit.
+
 Increasing only the experimental localhost processing budget restored healthy 3,000-client runs at higher shard counts. In the observed failing 3,000-client case, Linux UDP receive-buffer exhaustion was not the cause (`RcvbufErrors=0`, `InErrors=0`).
 
 These are benchmark/harness findings. They must not be used as justification for weakening production abuse-control defaults.
@@ -95,7 +99,7 @@ The parent load generator owns the real benchmark child process and therefore kn
 
 The capture is restricted to the measured steady window. Ramp/handshake setup happens before `perf` is enabled, and profiling stops before measurement teardown so cleanup work does not contaminate the steady CPU profile.
 
-A run directory is created under the requested output root, normally `profiles/<scenario>/<run-id>/`, and contains the machine-readable benchmark report plus profiling metadata and derived artifacts such as `perf.data`, the text report, folded stacks, and a flamegraph. Raw `perf.data` can be large and should remain an untracked local artifact.
+A run directory is created under the requested output root, normally `profiles/<scenario>/<run-id>/`, and contains the machine-readable benchmark report plus profiling metadata and derived artifacts such as `perf.data`, the text report, folded stacks, and a flamegraph. `profile.json` uses the same `raknet_upstream_revision` and `raknet_hardfork_revision` semantics as `run.json`, while still accepting the historical `vendor_revision` key when older profile artifacts are read. Raw `perf.data` can be large and should remain an untracked local artifact.
 
 Profiler overhead means CPU/resource numbers from a profiling run are diagnostic and should not replace an ordinary release-mode capacity baseline. A hotspot is evidence for investigation, not an automatic reason to patch the RakNet hardfork.
 
