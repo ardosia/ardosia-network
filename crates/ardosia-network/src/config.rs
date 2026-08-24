@@ -24,6 +24,10 @@ pub struct NetworkConfig {
     pub bind_addr: SocketAddr,
     pub raknet_protocols: Vec<u8>,
     pub max_connections: usize,
+    /// Opaque unconnected-pong advertisement interpreted by the application.
+    pub advertisement: String,
+    /// Whether the underlying RakNet handshake advertises and requires cookies.
+    pub send_cookie: bool,
     pub runtime: NetworkRuntimeConfig,
 }
 
@@ -60,6 +64,8 @@ impl NetworkConfig {
             bind_addr: self.bind_addr,
             supported_protocols: self.raknet_protocols.clone(),
             max_sessions: self.max_connections,
+            advertisement: self.advertisement.clone(),
+            send_cookie: self.send_cookie,
             ..TransportConfig::default()
         };
         vendor
@@ -85,6 +91,8 @@ mod tests {
             bind_addr: SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0),
             raknet_protocols: vec![8],
             max_connections: 500,
+            advertisement: "ardosia-network-test".into(),
+            send_cookie: true,
             runtime,
         }
     }
