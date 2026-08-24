@@ -27,6 +27,8 @@ async fn rejects_empty_protocol_list() {
         bind_addr: allocate_loopback_addr(),
         raknet_protocols: vec![],
         max_connections: 32,
+        advertisement: "ardosia-network-test".into(),
+        send_cookie: true,
         runtime: NetworkRuntimeConfig::default(),
     })
     .await;
@@ -46,6 +48,8 @@ async fn rejects_zero_max_connections() {
         bind_addr: allocate_loopback_addr(),
         raknet_protocols: vec![8],
         max_connections: 0,
+        advertisement: "ardosia-network-test".into(),
+        send_cookie: true,
         runtime: NetworkRuntimeConfig::default(),
     })
     .await;
@@ -66,6 +70,8 @@ async fn protocol8_roundtrips_reliable_ordered_payload() {
         bind_addr: addr,
         raknet_protocols: vec![8],
         max_connections: 32,
+        advertisement: "ardosia-network-test".into(),
+        send_cookie: true,
         runtime: NetworkRuntimeConfig::default(),
     })
     .await
