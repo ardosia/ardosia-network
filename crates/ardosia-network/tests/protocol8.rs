@@ -23,6 +23,8 @@ fn network_config(addr: SocketAddr) -> NetworkConfig {
         bind_addr: addr,
         raknet_protocols: vec![8],
         max_connections: 32,
+        advertisement: "ardosia-network-test".into(),
+        send_cookie: true,
         runtime: NetworkRuntimeConfig::default(),
     }
 }
