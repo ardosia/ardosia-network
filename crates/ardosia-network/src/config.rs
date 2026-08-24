@@ -130,4 +130,22 @@ mod tests {
             other => panic!("unexpected error: {other}"),
         }
     }
+
+    #[test]
+    fn legacy_transport_options_reach_vendor_config() {
+        let config = NetworkConfig {
+            bind_addr: SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 19132),
+            raknet_protocols: vec![8],
+            max_connections: 20,
+            advertisement: "MCPE;Ardosia;84;0.15.10;0;20".into(),
+            send_cookie: false,
+            runtime: NetworkRuntimeConfig::default(),
+        };
+
+        let vendor = config.to_vendor_transport_config().unwrap();
+
+        assert_eq!(vendor.supported_protocols, vec![8]);
+        assert_eq!(vendor.advertisement, "MCPE;Ardosia;84;0.15.10;0;20");
+        assert!(!vendor.send_cookie);
+    }
 }
