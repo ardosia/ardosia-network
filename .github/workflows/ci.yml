@@ -2,6 +2,12 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Repository branch, tag, or commit to verify
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
@@ -11,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Check out pinned private RakNet dependency
         uses: actions/checkout@v4
