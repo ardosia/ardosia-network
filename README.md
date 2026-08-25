@@ -1,75 +1,79 @@
 # ardosia-network
 
-Ardosia-facing networking facade and RakNet transport integration.
+Ardosia-facing networking facade over the standalone `ardosia-raknet` transport implementation.
 
-`ardosia-network` owns the stable transport surface used by Ardosia. RakNet transport algorithms live in the standalone `ardosia-raknet` hardfork. Minecraft: Pocket Edition packet definitions, codecs, login flow, and version-specific game behavior belong in `ardosia-protocol`.
+`ardosia-network` is intentionally game-agnostic: it moves opaque connected payloads and exposes transport configuration/metrics without interpreting MCPE packets.
 
-The former in-repository load generator, scenarios, benchmark runner, and profiling harness were intentionally removed in August 2026 after the major localhost scaling failures were traced to benchmark-environment ceilings rather than a demonstrated transport-capacity wall. Historical measurements and the diagnosis are preserved in [`docs/benchmark-history.md`](docs/benchmark-history.md).
+## Current target
 
-## Status
-
-Ardosia currently targets the historical Minecraft: Pocket Edition 0.15.10 stack:
+The active Ardosia stack targets:
 
 - MCPE game protocol: `84`
 - RakNet protocol: `8`
-- Rust: `1.98+`
+- Rust: `1.98.0`
 - RakNet package: `raknet-rust` `0.2.0`
 - hardfork repository: `ardosia/ardosia-raknet`
-- exact pinned hardfork revision: `f127fce27a206a51a1d39ffa7a9bbed98d10ea14`
+- pinned hardfork revision: `f127fce27a206a51a1d39ffa7a9bbed98d10ea14`
 - preserved upstream baseline: `3edfb4170e6cb5aeed992b09b50176fb7e5b6079`
 
-RakNet protocol selection is runtime-configurable. Protocol `8` is configured by Ardosia rather than hard-coded into the transport implementation.
+RakNet protocol selection, unconnected-pong advertisement, and handshake-cookie behavior are application-configurable. MCPE-specific values are supplied by `ardosia-server`; they are not hard-coded into this facade.
 
-## Architectural boundary
+## Architecture
 
 ```text
-server / game
-    |
-    v
-ardosia-protocol
-MCPE protocol 84
-    |
-    v
-ardosia-network
-Ardosia facade + integration
-    |
-    v
-ardosia-raknet
-UDP + RakNet algorithms
+ardosia-server
+   |-- ardosia-protocol
+   `-- ardosia-network
+          `-- ardosia-raknet
 ```
 
 ### `ardosia-network` owns
 
-- `NetworkServer` and the Ardosia-facing connection lifecycle;
-- opaque payload send/receive abstractions;
-- Ardosia runtime and shard configuration;
+- `NetworkServer` and Ardosia-facing connection lifecycle;
+- opaque connected-payload send/receive abstractions;
+- generic RakNet compatibility configuration exposed to applications;
+- runtime/shard configuration;
 - translation between Ardosia configuration/metrics and the RakNet implementation;
-- integration and regression tests across the public facade.
+- integration/regression tests across the public facade.
 
 ### `ardosia-network` does not own
 
-- RakNet handshake, reliability, retransmission, congestion-control or transport-session algorithms;
-- MCPE game packet definitions or codecs;
-- gameplay/application state;
-- a load-generation or benchmark harness.
+- RakNet handshake/reliability/retransmission/congestion algorithms;
+- MCPE packet definitions, codecs, or session state;
+- gameplay/world/application state;
+- a production load-generation harness.
 
-Public Ardosia networking consumers should not need to import hardfork implementation types directly.
+Consumers above this layer should not need to import hardfork implementation types directly.
 
-## Repository layout
+## Legacy MCPE compatibility surface
 
-```text
-crates/ardosia-network/     Ardosia networking facade
-docs/benchmark-history.md  Historical benchmark findings and interpretation
-docs/results/              Preserved raw historical benchmark reports
+The facade supports the transport knobs needed by the MCPE 0.15.10 server profile while remaining generic:
+
+```rust
+NetworkConfig {
+    raknet_protocols: vec![8],
+    advertisement: "MCPE;Ardosia;84;0.15.10;0;20".into(),
+    send_cookie: false,
+    // ...
+}
 ```
 
-The former `vendor/raknet-rust/` source tree is also gone. Cargo resolves the standalone hardfork at the exact revision recorded in `Cargo.toml` and `Cargo.lock`.
+Regression coverage verifies that:
+
+- protocol `8` is accepted when configured;
+- unsupported protocol versions are rejected;
+- a protocol-8 hardfork client can complete the RakNet handshake and reach the Ardosia accept boundary;
+- the compatibility options reach the underlying transport config;
+- reliable-ordered payloads round-trip through the public facade;
+- fragmented reliable-ordered payloads reassemble correctly;
+- the RakNet implementation does not leak through the crate-root public surface.
+
+A real MCPE 0.15.10 client has reached the `ardosia-server` protocol/session layer over this transport profile.
 
 ## Example
 
 ```rust
 let mut connection = server.accept().await?;
-
 let payload = connection.recv().await?;
 
 connection
@@ -77,67 +81,47 @@ connection
     .await?;
 ```
 
-The transport does not interpret the payload as an MCPE game packet.
-
-## Protocol 8
-
-The server maps the configured RakNet protocol list into the hardfork transport configuration.
-
-Regression coverage verifies that:
-
-- protocol `8` is accepted when configured;
-- unsupported RakNet protocol versions are rejected;
-- a full protocol-8 client can complete the RakNet handshake and reach the Ardosia server facade;
-- the pinned hardfork exposes the expected low-level protocol/configuration surface without leaking those implementation types through the Ardosia public API.
+The payload is intentionally opaque to this crate.
 
 ## Dependency reproducibility
 
-The workspace pins `ardosia-raknet` by exact Git revision rather than by a moving branch:
+The workspace pins `ardosia-raknet` by exact Git revision rather than a moving branch:
 
 ```text
 f127fce27a206a51a1d39ffa7a9bbed98d10ea14
 ```
 
-That commit is preserved in the `ardosia-raknet` default-branch ancestry. The hardfork repository owns its own formatting, Clippy, unit, integration, and soak gates; this repository validates the Ardosia integration against the pinned revision.
-
-Because the hardfork repository is private, a development machine must have GitHub credentials that allow Cargo/Git to fetch it. If Cargo's built-in Git transport cannot use the local credential setup, `CARGO_NET_GIT_FETCH_WITH_CLI=true` can delegate fetching to the system Git client.
+A development machine therefore needs Git credentials capable of reading the private hardfork. If Cargo's built-in Git transport cannot use the local credential setup, `CARGO_NET_GIT_FETCH_WITH_CLI=true` can delegate fetching to the system Git client.
 
 ## Verification
 
-Run the workspace quality gate on Rust 1.98.0:
+Run the local Rust `1.98.0` gate:
 
 ```bash
-cargo +1.98.0 fmt --all -- --check
-CARGO_NET_GIT_FETCH_WITH_CLI=true cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
-CARGO_NET_GIT_FETCH_WITH_CLI=true cargo +1.98.0 test --workspace --locked
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets
+cargo doc --no-deps
 git diff --check
 ```
 
-`rust-toolchain.toml` and the manual GitHub Actions workflow are pinned to Rust `1.98.0`, so local and CI verification use the same compiler, rustfmt, and Clippy baseline. GitHub Actions remain manual-only so hosted runner time is not consumed on every development commit.
+Local verification is the current source of truth for active development. Hosted CI is not required for every development commit.
 
 ## Historical benchmark evidence
 
-The removed harness produced useful evidence, but it also demonstrated why a localhost benchmark driver must not be confused with server capacity. The preserved record documents the trusted 300/500/1000-session runs, the CPU profile, churn characterization, the ~1,012 file-descriptor wall, and the 3,000-client shared-source-IP processing-budget artifact.
+The former in-repository load generator/scenario/benchmark harness was intentionally removed after localhost scaling failures were traced to test-environment ceilings and shared-source-IP artifacts rather than a demonstrated transport-capacity wall.
 
-See [`docs/benchmark-history.md`](docs/benchmark-history.md). The raw historical reports under [`docs/results/`](docs/results/) remain preserved as evidence, not as an active benchmark workflow.
+The evidence remains preserved in:
 
-## RakNet hardfork
+- `docs/benchmark-history.md` — interpretation and conclusions;
+- `docs/results/` — raw historical reports.
 
-`ardosia-raknet` is intended to remain a standalone, generally usable RakNet hardfork rather than becoming an Ardosia-specific game-server subsystem.
+Important preserved findings include the load-generator `RLIMIT_NOFILE` wall, the shared per-IP connected processing-budget artifact at large localhost client counts, and the fair worker-scheduling correction. These findings must not be generalized into universal capacity claims or used to weaken production abuse-control defaults.
 
-The carried Ardosia transport delta includes fair shard-worker scheduling, separation of established connected traffic from the coarse offline/unknown per-IP limiter, connected processing-budget accounting, and regression coverage for established-session blocking/rate-limit semantics.
+## RakNet boundary
 
-Production abuse-control defaults must not be weakened to accommodate localhost benchmarking artifacts.
+`ardosia-raknet` remains a standalone generally usable RakNet hardfork. Algorithmic transport changes belong there and should be backed by correctness evidence, regression tests, profiling, or meaningful benchmark evidence.
 
-## Project direction
-
-Near-term networking work is focused on:
-
-- keeping the Ardosia facade small and stable;
-- preserving transport correctness and useful health metrics;
-- evolving RakNet algorithms only from correctness/profiling evidence in `ardosia-raknet`;
-- building the MCPE protocol-84 layer in `ardosia-protocol` without coupling it to RakNet internals.
-
-If large-scale capacity characterization is resumed later, it should use a purpose-built harness that models independent source IPs or distributed generators and records host/process ceilings from the start, rather than resurrecting the removed localhost harness unchanged.
+`ardosia-network` should remain small and stable as the facade between that implementation and Ardosia application code.
 
 Ardosia is an independent project and is not affiliated with Mojang Studios or Microsoft.
