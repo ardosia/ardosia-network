@@ -24,7 +24,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p .cargo
-          printf 'paths = ["_deps/ardosia-raknet"]\n' > .cargo/config.toml
+          cat > .cargo/config.toml <<EOF
+          paths = ["${GITHUB_WORKSPACE}/_deps/ardosia-raknet"]
+          EOF
 
       - uses: dtolnay/rust-toolchain@1.98.0
         with:
