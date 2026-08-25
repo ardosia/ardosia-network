@@ -25,6 +25,16 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      - name: Require private-repository token
+        shell: bash
+        env:
+          ARDOSIA_REPO_TOKEN: ${{ secrets.ARDOSIA_REPO_TOKEN }}
+        run: |
+          if [[ -z "${ARDOSIA_REPO_TOKEN}" ]]; then
+            echo "::error::Missing ARDOSIA_REPO_TOKEN with read-only access to private Ardosia sibling repositories."
+            exit 1
+          fi
+
       - name: Check out pinned private RakNet dependency
         uses: actions/checkout@v4
         with:
