@@ -107,9 +107,7 @@ impl NetworkConfig {
         self.worker_shards
     }
 
-    pub(crate) fn to_vendor_transport_config(
-        &self,
-    ) -> Result<TransportConfig, NetworkConfigError> {
+    pub(crate) fn to_vendor_transport_config(&self) -> Result<TransportConfig, NetworkConfigError> {
         let vendor = TransportConfig {
             bind_addr: self.bind_addr,
             supported_protocols: self.raknet_protocols.clone(),
