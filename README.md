@@ -1,8 +1,8 @@
 # ardosia-network
 
-Ardosia-facing networking facade over the standalone `ardosia-raknet` transport implementation.
+Game-agnostic asynchronous payload transport for Ardosia over the standalone `ardosia-raknet` implementation.
 
-`ardosia-network` is intentionally game-agnostic: it moves opaque connected payloads and exposes transport configuration/metrics without interpreting MCPE packets.
+`ardosia-network` owns listener and connection lifecycle, validated transport configuration, bounded payload delivery, backpressure handling, and graceful shutdown. It deliberately does not interpret Minecraft packets or own player, session, game, or world semantics.
 
 ## Current target
 
@@ -16,7 +16,7 @@ The active Ardosia stack targets:
 - pinned hardfork revision: `f127fce27a206a51a1d39ffa7a9bbed98d10ea14`
 - preserved upstream baseline: `3edfb4170e6cb5aeed992b09b50176fb7e5b6079`
 
-RakNet protocol selection, unconnected-pong advertisement, and handshake-cookie behavior are application-configurable. MCPE-specific values are supplied by `ardosia-server`; they are not hard-coded into this facade.
+RakNet protocol selection, the opaque unconnected-pong advertisement, handshake-cookie mode, connection capacity, and optional worker sharding are supplied by the application rather than hard-coded into this crate.
 
 ## Architecture
 
@@ -29,59 +29,61 @@ ardosia-server
 
 ### `ardosia-network` owns
 
-- `NetworkServer` and Ardosia-facing connection lifecycle;
-- opaque connected-payload send/receive abstractions;
-- generic RakNet compatibility configuration exposed to applications;
-- runtime/shard configuration;
-- translation between Ardosia configuration/metrics and the RakNet implementation;
-- integration/regression tests across the public facade.
+- `NetworkConfig` validation and translation to the pinned transport;
+- `NetworkServer` listener lifecycle;
+- accepted `Connection` lifecycle;
+- opaque connected-payload send/receive operations;
+- bounded queues and application-facing backpressure outcomes;
+- integration/regression tests across the supported facade.
 
 ### `ardosia-network` does not own
 
-- RakNet handshake/reliability/retransmission/congestion algorithms;
+- RakNet handshake, reliability, retransmission, congestion-control, or sharding algorithms;
 - MCPE packet definitions, codecs, or session state;
-- gameplay/world/application state;
-- a production load-generation harness.
+- player, gameplay, world, or application policy;
+- a production load-generation or observability subsystem.
 
 Consumers above this layer should not need to import hardfork implementation types directly.
 
-## Legacy MCPE compatibility surface
-
-The facade supports the transport knobs needed by the MCPE 0.15.10 server profile while remaining generic:
+## Usage
 
 ```rust
-NetworkConfig {
-    raknet_protocols: vec![8],
-    advertisement: "MCPE;Ardosia;84;0.15.10;0;20".into(),
-    send_cookie: false,
-    // ...
-}
+use std::net::SocketAddr;
+use std::num::NonZeroUsize;
+
+use ardosia_network::{CookieMode, NetworkConfig, NetworkServer, Reliability};
+
+let bind_addr: SocketAddr = "0.0.0.0:19132".parse()?;
+let config = NetworkConfig::new(
+    bind_addr,
+    [8],
+    NonZeroUsize::new(20).unwrap(),
+    "ardosia-network",
+    CookieMode::Disabled,
+)?;
+
+let mut server = NetworkServer::bind(config).await?;
+let mut connection = server.accept().await?;
+let payload = connection.recv().await?;
+connection.send(payload, Reliability::ReliableOrdered).await?;
+server.shutdown().await?;
 ```
+
+The payload and advertisement are intentionally opaque to this crate. Call `.with_worker_shards(NonZeroUsize::new(n).unwrap())` only when the application needs to override the transport's default shard selection.
+
+## Compatibility coverage
 
 Regression coverage verifies that:
 
 - protocol `8` is accepted when configured;
-- unsupported protocol versions are rejected;
+- unsupported RakNet protocol versions are rejected;
 - a protocol-8 hardfork client can complete the RakNet handshake and reach the Ardosia accept boundary;
-- the compatibility options reach the underlying transport config;
+- cookie mode and the advertisement reach the underlying transport configuration;
 - reliable-ordered payloads round-trip through the public facade;
 - fragmented reliable-ordered payloads reassemble correctly;
 - the RakNet implementation does not leak through the crate-root public surface.
 
 A real MCPE 0.15.10 client has reached the `ardosia-server` protocol/session layer over this transport profile.
-
-## Example
-
-```rust
-let mut connection = server.accept().await?;
-let payload = connection.recv().await?;
-
-connection
-    .send(payload, Reliability::ReliableOrdered)
-    .await?;
-```
-
-The payload is intentionally opaque to this crate.
 
 ## Dependency reproducibility
 
@@ -102,6 +104,7 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
 cargo doc --no-deps
+RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps
 git diff --check
 ```
 
