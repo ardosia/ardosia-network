@@ -19,12 +19,12 @@ impl NetworkServer {
     pub async fn bind(config: NetworkConfig) -> Result<Self, NetworkError> {
         let transport = config.to_vendor_transport_config()?;
         let mut builder = RaknetServer::builder().transport_config(transport);
-        if let Some(worker_shards) = config.runtime.worker_shards {
-            builder = builder.shard_count(worker_shards);
+        if let Some(worker_shards) = config.worker_shards() {
+            builder = builder.shard_count(worker_shards.get());
         }
         let vendor = builder.start().await?;
 
-        let (accept_tx, accept_rx) = mpsc::channel(config.max_connections);
+        let (accept_tx, accept_rx) = mpsc::channel(config.max_connections().get());
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
         let metrics = Arc::new(MetricsState::default());
         let backend = tokio::spawn(run_backend(
