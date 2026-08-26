@@ -1,8 +1,10 @@
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use ardosia_network::{
-    NetworkConfig, NetworkError, NetworkRuntimeConfig, NetworkServer, Reliability,
+    CookieMode, NetworkConfig, NetworkConfigError, NetworkError, NetworkRuntimeConfig, NetworkServer,
+    Reliability,
 };
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig, RaknetClientEvent};
@@ -12,6 +14,34 @@ use tokio::time::timeout;
 fn allocate_loopback_addr() -> SocketAddr {
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     socket.local_addr().unwrap()
+}
+
+#[test]
+fn rejects_empty_protocol_set_during_construction() {
+    let error = NetworkConfig::new(
+        allocate_loopback_addr(),
+        [],
+        NonZeroUsize::new(32).unwrap(),
+        "ardosia-network-test",
+        CookieMode::Enabled,
+    )
+    .unwrap_err();
+
+    assert_eq!(error, NetworkConfigError::NoProtocols);
+}
+
+#[test]
+fn rejects_duplicate_protocol_during_construction() {
+    let error = NetworkConfig::new(
+        allocate_loopback_addr(),
+        [8, 8],
+        NonZeroUsize::new(32).unwrap(),
+        "ardosia-network-test",
+        CookieMode::Enabled,
+    )
+    .unwrap_err();
+
+    assert_eq!(error, NetworkConfigError::DuplicateProtocol { protocol: 8 });
 }
 
 fn protocol8_client_config() -> RaknetClientConfig {
