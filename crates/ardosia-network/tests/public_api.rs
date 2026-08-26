@@ -2,9 +2,7 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use ardosia_network::{
-    CookieMode, NetworkConfig, NetworkConfigError, NetworkServer, Reliability,
-};
+use ardosia_network::{CookieMode, NetworkConfig, NetworkConfigError, NetworkServer, Reliability};
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig, RaknetClientEvent};
 use raknet_rust::low_level::protocol::Reliability as RaknetReliability;
