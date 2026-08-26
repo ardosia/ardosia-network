@@ -6,6 +6,7 @@ use crate::backend::{BackendCommand, COMMAND_QUEUE_CAPACITY, run_backend};
 use crate::connection::Connection;
 use crate::{NetworkConfig, NetworkError};
 
+/// Asynchronous listener facade over the pinned RakNet transport.
 pub struct NetworkServer {
     accept_rx: mpsc::Receiver<Result<Connection, NetworkError>>,
     commands: mpsc::Sender<BackendCommand>,
@@ -13,6 +14,13 @@ pub struct NetworkServer {
 }
 
 impl NetworkServer {
+    /// Binds and starts a network listener from validated configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NetworkError::Configuration`] if the translated vendor
+    /// configuration is rejected, or the transport I/O error produced while
+    /// starting the listener.
     pub async fn bind(config: NetworkConfig) -> Result<Self, NetworkError> {
         let transport = config.to_vendor_transport_config()?;
         let mut builder = RaknetServer::builder().transport_config(transport);
@@ -37,6 +45,12 @@ impl NetworkServer {
         })
     }
 
+    /// Waits for the next accepted transport connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns a backend failure reported by a transport worker, or
+    /// [`NetworkError::BackendStopped`] if the accept stream ends unexpectedly.
     pub async fn accept(&mut self) -> Result<Connection, NetworkError> {
         self.accept_rx
             .recv()
@@ -44,6 +58,13 @@ impl NetworkServer {
             .ok_or(NetworkError::BackendStopped)?
     }
 
+    /// Gracefully shuts down the listener and waits for the backend task to exit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NetworkError::BackendStopped`] if the shutdown command or
+    /// response channel closes unexpectedly, [`NetworkError::BackendFailure`]
+    /// if the backend task cannot be joined, or the transport shutdown error.
     pub async fn shutdown(self) -> Result<(), NetworkError> {
         let Self {
             accept_rx: _,
