@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use ardosia_network::{NetworkConfig, NetworkRuntimeConfig, NetworkServer};
+use ardosia_network::{CookieMode, NetworkConfig, NetworkServer};
 use raknet_rust::client::{RaknetClient, RaknetClientConfig};
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
@@ -19,14 +20,14 @@ fn allocate_loopback_addr() -> SocketAddr {
 }
 
 fn network_config(addr: SocketAddr) -> NetworkConfig {
-    NetworkConfig {
-        bind_addr: addr,
-        raknet_protocols: vec![8],
-        max_connections: 32,
-        advertisement: "ardosia-network-test".into(),
-        send_cookie: true,
-        runtime: NetworkRuntimeConfig::default(),
-    }
+    NetworkConfig::new(
+        addr,
+        [8],
+        NonZeroUsize::new(32).unwrap(),
+        "ardosia-network-test",
+        CookieMode::Enabled,
+    )
+    .unwrap()
 }
 
 fn raw_request1(protocol: u8, mtu: usize) -> Vec<u8> {
