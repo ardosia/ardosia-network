@@ -1,12 +1,11 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use bytes::Bytes;
 use raknet_rust::server::{PeerId, RaknetServer, RaknetServerEvent, SendOptions};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::connection::Connection;
-use crate::{MetricsState, NetworkError, Reliability};
+use crate::{NetworkError, Reliability};
 
 pub(crate) const COMMAND_QUEUE_CAPACITY: usize = 4096;
 pub(crate) const PER_CONNECTION_INBOUND_CAPACITY: usize = 1024;
@@ -44,7 +43,6 @@ pub(crate) async fn run_backend(
     mut commands: mpsc::Receiver<BackendCommand>,
     accept_tx: mpsc::Sender<Result<Connection, NetworkError>>,
     command_tx: mpsc::Sender<BackendCommand>,
-    metrics: Arc<MetricsState>,
 ) {
     let mut peers: HashMap<PeerId, PeerState> = HashMap::new();
     let mut shutdown_response = None;
@@ -94,7 +92,6 @@ pub(crate) async fn run_backend(
                     &mut peers,
                     &accept_tx,
                     &command_tx,
-                    &metrics,
                 )
                 .await
                 {
@@ -120,7 +117,6 @@ async fn handle_server_event(
     peers: &mut HashMap<PeerId, PeerState>,
     accept_tx: &mpsc::Sender<Result<Connection, NetworkError>>,
     command_tx: &mpsc::Sender<BackendCommand>,
-    metrics: &Arc<MetricsState>,
 ) -> bool {
     match event {
         RaknetServerEvent::PeerConnected { peer_id, addr, .. } => {
@@ -134,7 +130,6 @@ async fn handle_server_event(
                     close: close_tx,
                 },
             );
-            metrics.connected();
 
             let connection =
                 Connection::new(peer_id, addr, inbound_rx, close_rx, command_tx.clone());
@@ -142,13 +137,12 @@ async fn handle_server_event(
             match accept_tx.try_send(Ok(connection)) {
                 Ok(()) => false,
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    close_peer_for_backpressure(server, peers, peer_id, metrics).await;
+                    close_peer_for_backpressure(server, peers, peer_id).await;
                     false
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     if let Some(peer) = peers.remove(&peer_id) {
                         let _ = peer.close.send(CloseState::Closed);
-                        metrics.disconnected();
                     }
                     let _ = server.disconnect(peer_id).await;
                     true
@@ -166,12 +160,11 @@ async fn handle_server_event(
             match dispatch {
                 Ok(()) => {}
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    close_peer_for_backpressure(server, peers, peer_id, metrics).await;
+                    close_peer_for_backpressure(server, peers, peer_id).await;
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     if let Some(peer) = peers.remove(&peer_id) {
                         let _ = peer.close.send(CloseState::Closed);
-                        metrics.disconnected();
                     }
                     let _ = server.disconnect(peer_id).await;
                 }
@@ -181,14 +174,10 @@ async fn handle_server_event(
         RaknetServerEvent::PeerDisconnected { peer_id, .. } => {
             if let Some(peer) = peers.remove(&peer_id) {
                 let _ = peer.close.send(CloseState::Closed);
-                metrics.disconnected();
             }
             false
         }
-        RaknetServerEvent::DecodeError { .. } => {
-            metrics.protocol_error();
-            false
-        }
+        RaknetServerEvent::DecodeError { .. } => false,
         RaknetServerEvent::WorkerError { shard_id, message } => {
             let message = format!("RakNet worker {shard_id} failed: {message}");
             let _ = accept_tx.try_send(Err(NetworkError::BackendFailure { message }));
@@ -199,14 +188,7 @@ async fn handle_server_event(
             let _ = accept_tx.try_send(Err(NetworkError::BackendFailure { message }));
             true
         }
-        RaknetServerEvent::Metrics {
-            shard_id,
-            snapshot,
-            dropped_non_critical_events,
-        } => {
-            metrics.ingest_transport_snapshot(shard_id, *snapshot, dropped_non_critical_events);
-            false
-        }
+        RaknetServerEvent::Metrics { .. } => false,
         _ => false,
     }
 }
@@ -215,12 +197,9 @@ async fn close_peer_for_backpressure(
     server: &mut RaknetServer,
     peers: &mut HashMap<PeerId, PeerState>,
     peer_id: PeerId,
-    metrics: &Arc<MetricsState>,
 ) {
     if let Some(peer) = peers.remove(&peer_id) {
         let _ = peer.close.send(CloseState::Backpressure);
-        metrics.backpressure_disconnect();
-        metrics.disconnected();
     }
     let _ = server.disconnect(peer_id).await;
 }
