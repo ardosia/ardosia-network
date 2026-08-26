@@ -1,17 +1,14 @@
-use std::sync::Arc;
-
 use raknet_rust::server::RaknetServer;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::backend::{BackendCommand, COMMAND_QUEUE_CAPACITY, run_backend};
 use crate::connection::Connection;
-use crate::{MetricsState, NetworkConfig, NetworkError, NetworkMetrics, NetworkShardMetrics};
+use crate::{NetworkConfig, NetworkError};
 
 pub struct NetworkServer {
     accept_rx: mpsc::Receiver<Result<Connection, NetworkError>>,
     commands: mpsc::Sender<BackendCommand>,
-    metrics: Arc<MetricsState>,
     backend: JoinHandle<()>,
 }
 
@@ -26,19 +23,16 @@ impl NetworkServer {
 
         let (accept_tx, accept_rx) = mpsc::channel(config.max_connections().get());
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
-        let metrics = Arc::new(MetricsState::default());
         let backend = tokio::spawn(run_backend(
             vendor,
             command_rx,
             accept_tx,
             command_tx.clone(),
-            metrics.clone(),
         ));
 
         Ok(Self {
             accept_rx,
             commands: command_tx,
-            metrics,
             backend,
         })
     }
@@ -50,19 +44,10 @@ impl NetworkServer {
             .ok_or(NetworkError::BackendStopped)?
     }
 
-    pub fn metrics(&self) -> NetworkMetrics {
-        self.metrics.snapshot()
-    }
-
-    pub fn shard_metrics(&self) -> Vec<NetworkShardMetrics> {
-        self.metrics.shard_metrics()
-    }
-
     pub async fn shutdown(self) -> Result<(), NetworkError> {
         let Self {
             accept_rx: _,
             commands,
-            metrics: _,
             backend,
         } = self;
 
