@@ -3,8 +3,7 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use ardosia_network::{
-    CookieMode, NetworkConfig, NetworkConfigError, NetworkError, NetworkRuntimeConfig, NetworkServer,
-    Reliability,
+    CookieMode, NetworkConfig, NetworkConfigError, NetworkServer, Reliability,
 };
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig, RaknetClientEvent};
@@ -14,6 +13,17 @@ use tokio::time::timeout;
 fn allocate_loopback_addr() -> SocketAddr {
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     socket.local_addr().unwrap()
+}
+
+fn network_config(addr: SocketAddr) -> NetworkConfig {
+    NetworkConfig::new(
+        addr,
+        [8],
+        NonZeroUsize::new(32).unwrap(),
+        "ardosia-network-test",
+        CookieMode::Enabled,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -52,60 +62,9 @@ fn protocol8_client_config() -> RaknetClientConfig {
 }
 
 #[tokio::test]
-async fn rejects_empty_protocol_list() {
-    let result = NetworkServer::bind(NetworkConfig {
-        bind_addr: allocate_loopback_addr(),
-        raknet_protocols: vec![],
-        max_connections: 32,
-        advertisement: "ardosia-network-test".into(),
-        send_cookie: true,
-        runtime: NetworkRuntimeConfig::default(),
-    })
-    .await;
-
-    assert!(matches!(
-        result,
-        Err(NetworkError::InvalidConfig {
-            field: "raknet_protocols",
-            ..
-        })
-    ));
-}
-
-#[tokio::test]
-async fn rejects_zero_max_connections() {
-    let result = NetworkServer::bind(NetworkConfig {
-        bind_addr: allocate_loopback_addr(),
-        raknet_protocols: vec![8],
-        max_connections: 0,
-        advertisement: "ardosia-network-test".into(),
-        send_cookie: true,
-        runtime: NetworkRuntimeConfig::default(),
-    })
-    .await;
-
-    assert!(matches!(
-        result,
-        Err(NetworkError::InvalidConfig {
-            field: "max_connections",
-            ..
-        })
-    ));
-}
-
-#[tokio::test]
 async fn protocol8_roundtrips_reliable_ordered_payload() {
     let addr = allocate_loopback_addr();
-    let mut server = NetworkServer::bind(NetworkConfig {
-        bind_addr: addr,
-        raknet_protocols: vec![8],
-        max_connections: 32,
-        advertisement: "ardosia-network-test".into(),
-        send_cookie: true,
-        runtime: NetworkRuntimeConfig::default(),
-    })
-    .await
-    .unwrap();
+    let mut server = NetworkServer::bind(network_config(addr)).await.unwrap();
 
     let mut client = RaknetClient::connect_with_config(addr, protocol8_client_config())
         .await
