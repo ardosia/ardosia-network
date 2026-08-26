@@ -24,6 +24,10 @@ pub struct NetworkConfig {
     pub bind_addr: SocketAddr,
     pub raknet_protocols: Vec<u8>,
     pub max_connections: usize,
+    /// Opaque unconnected-pong advertisement interpreted by the application.
+    pub advertisement: String,
+    /// Whether the underlying RakNet handshake advertises and requires cookies.
+    pub send_cookie: bool,
     pub runtime: NetworkRuntimeConfig,
 }
 
@@ -60,6 +64,8 @@ impl NetworkConfig {
             bind_addr: self.bind_addr,
             supported_protocols: self.raknet_protocols.clone(),
             max_sessions: self.max_connections,
+            advertisement: self.advertisement.clone(),
+            send_cookie: self.send_cookie,
             ..TransportConfig::default()
         };
         vendor
@@ -85,6 +91,8 @@ mod tests {
             bind_addr: SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0),
             raknet_protocols: vec![8],
             max_connections: 500,
+            advertisement: "ardosia-network-test".into(),
+            send_cookie: true,
             runtime,
         }
     }
@@ -129,5 +137,23 @@ mod tests {
             }
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[test]
+    fn legacy_transport_options_reach_vendor_config() {
+        let config = NetworkConfig {
+            bind_addr: SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 19132),
+            raknet_protocols: vec![8],
+            max_connections: 20,
+            advertisement: "MCPE;Ardosia;84;0.15.10;0;20".into(),
+            send_cookie: false,
+            runtime: NetworkRuntimeConfig::default(),
+        };
+
+        let vendor = config.to_vendor_transport_config().unwrap();
+
+        assert_eq!(vendor.supported_protocols, vec![8]);
+        assert_eq!(vendor.advertisement, "MCPE;Ardosia;84;0.15.10;0;20");
+        assert!(!vendor.send_cookie);
     }
 }
