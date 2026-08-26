@@ -2,13 +2,12 @@ use std::io;
 
 use thiserror::Error;
 
+use crate::config::NetworkConfigError;
+
 #[derive(Debug, Error)]
 pub enum NetworkError {
-    #[error("invalid network configuration field {field}: {message}")]
-    InvalidConfig {
-        field: &'static str,
-        message: String,
-    },
+    #[error(transparent)]
+    Configuration(#[from] NetworkConfigError),
 
     #[error("network I/O failed: {0}")]
     Io(#[from] io::Error),
