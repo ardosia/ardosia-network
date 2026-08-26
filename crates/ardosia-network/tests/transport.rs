@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use ardosia_network::{NetworkConfig, NetworkRuntimeConfig, NetworkServer};
+use ardosia_network::{CookieMode, NetworkConfig, NetworkServer};
 use bytes::Bytes;
 use raknet_rust::client::{ClientSendOptions, RaknetClient, RaknetClientConfig};
 use raknet_rust::low_level::protocol::Reliability as RaknetReliability;
@@ -13,14 +14,14 @@ fn allocate_loopback_addr() -> SocketAddr {
 }
 
 fn network_config(addr: SocketAddr) -> NetworkConfig {
-    NetworkConfig {
-        bind_addr: addr,
-        raknet_protocols: vec![8],
-        max_connections: 32,
-        advertisement: "ardosia-network-test".into(),
-        send_cookie: true,
-        runtime: NetworkRuntimeConfig::default(),
-    }
+    NetworkConfig::new(
+        addr,
+        [8],
+        NonZeroUsize::new(32).unwrap(),
+        "ardosia-network-test",
+        CookieMode::Enabled,
+    )
+    .unwrap()
 }
 
 fn protocol8_client_config() -> RaknetClientConfig {
@@ -63,35 +64,5 @@ async fn fragmented_reliable_ordered_payload_reassembles() {
     );
 
     client.disconnect(None).await.unwrap();
-    server.shutdown().await.unwrap();
-}
-
-#[tokio::test]
-async fn clean_disconnect_releases_connected_session_metric() {
-    let addr = allocate_loopback_addr();
-    let mut server = NetworkServer::bind(network_config(addr)).await.unwrap();
-    let mut client = RaknetClient::connect_with_config(addr, protocol8_client_config())
-        .await
-        .unwrap();
-    let _connection = timeout(Duration::from_secs(2), server.accept())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(server.metrics().connected_current, 1);
-    client.disconnect(None).await.unwrap();
-
-    timeout(Duration::from_secs(2), async {
-        loop {
-            if server.metrics().connected_current == 0 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
-
-    assert_eq!(server.metrics().disconnected_total, 1);
     server.shutdown().await.unwrap();
 }

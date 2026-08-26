@@ -7,6 +7,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::backend::{BackendCommand, CloseState};
 use crate::{NetworkError, Reliability};
 
+/// One accepted transport connection carrying opaque connected payloads.
 pub struct Connection {
     peer_id: PeerId,
     peer_addr: SocketAddr,
@@ -32,10 +33,20 @@ impl Connection {
         }
     }
 
+    /// Returns the remote socket address associated with this connection.
+    #[must_use]
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
     }
 
+    /// Receives the next opaque connected payload from the peer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NetworkError::ConnectionClosed`] after a normal close,
+    /// [`NetworkError::Backpressure`] after a policy close caused by a full
+    /// inbound queue, or [`NetworkError::BackendStopped`] if the backend ends
+    /// before a terminal peer state is delivered.
     pub async fn recv(&mut self) -> Result<Bytes, NetworkError> {
         loop {
             if let Some(error) = close_state_error(*self.close.borrow()) {
@@ -65,6 +76,13 @@ impl Connection {
         }
     }
 
+    /// Sends one opaque connected payload with the requested delivery semantics.
+    ///
+    /// # Errors
+    ///
+    /// Returns the connection's terminal close error when already closed,
+    /// [`NetworkError::BackendStopped`] when the backend command path is gone,
+    /// or the transport error produced while sending the payload.
     pub async fn send(&self, payload: Bytes, reliability: Reliability) -> Result<(), NetworkError> {
         if let Some(error) = close_state_error(*self.close.borrow()) {
             return Err(error);
@@ -86,6 +104,13 @@ impl Connection {
             .map_err(|_| NetworkError::BackendStopped)?
     }
 
+    /// Requests a transport-level disconnect for this peer.
+    ///
+    /// # Errors
+    ///
+    /// Returns the connection's terminal close error when already closed,
+    /// [`NetworkError::BackendStopped`] when the backend command path is gone,
+    /// or the transport error produced while disconnecting the peer.
     pub async fn close(&self) -> Result<(), NetworkError> {
         if let Some(error) = close_state_error(*self.close.borrow()) {
             return Err(error);

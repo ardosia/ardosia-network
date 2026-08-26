@@ -1,48 +1,56 @@
-use std::sync::Arc;
-
 use raknet_rust::server::RaknetServer;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::backend::{BackendCommand, COMMAND_QUEUE_CAPACITY, run_backend};
 use crate::connection::Connection;
-use crate::{MetricsState, NetworkConfig, NetworkError, NetworkMetrics, NetworkShardMetrics};
+use crate::{NetworkConfig, NetworkError};
 
+/// Asynchronous listener facade over the pinned RakNet transport.
 pub struct NetworkServer {
     accept_rx: mpsc::Receiver<Result<Connection, NetworkError>>,
     commands: mpsc::Sender<BackendCommand>,
-    metrics: Arc<MetricsState>,
     backend: JoinHandle<()>,
 }
 
 impl NetworkServer {
+    /// Binds and starts a network listener from validated configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NetworkError::Configuration`] if the translated vendor
+    /// configuration is rejected, or the transport I/O error produced while
+    /// starting the listener.
     pub async fn bind(config: NetworkConfig) -> Result<Self, NetworkError> {
         let transport = config.to_vendor_transport_config()?;
         let mut builder = RaknetServer::builder().transport_config(transport);
-        if let Some(worker_shards) = config.runtime.worker_shards {
-            builder = builder.shard_count(worker_shards);
+        if let Some(worker_shards) = config.worker_shards() {
+            builder = builder.shard_count(worker_shards.get());
         }
         let vendor = builder.start().await?;
 
-        let (accept_tx, accept_rx) = mpsc::channel(config.max_connections);
+        let (accept_tx, accept_rx) = mpsc::channel(config.max_connections().get());
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
-        let metrics = Arc::new(MetricsState::default());
         let backend = tokio::spawn(run_backend(
             vendor,
             command_rx,
             accept_tx,
             command_tx.clone(),
-            metrics.clone(),
         ));
 
         Ok(Self {
             accept_rx,
             commands: command_tx,
-            metrics,
             backend,
         })
     }
 
+    /// Waits for the next accepted transport connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns a backend failure reported by a transport worker, or
+    /// [`NetworkError::BackendStopped`] if the accept stream ends unexpectedly.
     pub async fn accept(&mut self) -> Result<Connection, NetworkError> {
         self.accept_rx
             .recv()
@@ -50,19 +58,17 @@ impl NetworkServer {
             .ok_or(NetworkError::BackendStopped)?
     }
 
-    pub fn metrics(&self) -> NetworkMetrics {
-        self.metrics.snapshot()
-    }
-
-    pub fn shard_metrics(&self) -> Vec<NetworkShardMetrics> {
-        self.metrics.shard_metrics()
-    }
-
+    /// Gracefully shuts down the listener and waits for the backend task to exit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NetworkError::BackendStopped`] if the shutdown command or
+    /// response channel closes unexpectedly, [`NetworkError::BackendFailure`]
+    /// if the backend task cannot be joined, or the transport shutdown error.
     pub async fn shutdown(self) -> Result<(), NetworkError> {
         let Self {
             accept_rx: _,
             commands,
-            metrics: _,
             backend,
         } = self;
 
