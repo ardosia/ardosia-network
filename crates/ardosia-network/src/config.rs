@@ -4,22 +4,40 @@ use std::num::NonZeroUsize;
 
 use raknet_rust::low_level::transport::TransportConfig;
 
+/// Errors produced while constructing or translating a [`NetworkConfig`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NetworkConfigError {
+    /// No RakNet protocol versions were supplied.
     #[error("at least one RakNet protocol must be configured")]
     NoProtocols,
+    /// The same RakNet protocol version was supplied more than once.
     #[error("RakNet protocol {protocol} is configured more than once")]
-    DuplicateProtocol { protocol: u8 },
+    DuplicateProtocol {
+        /// The duplicated RakNet protocol version.
+        protocol: u8,
+    },
+    /// The pinned RakNet transport rejected the translated configuration.
     #[error("RakNet rejected the transport configuration: {message}")]
-    TransportRejected { message: String },
+    TransportRejected {
+        /// The validation message returned by the transport.
+        message: String,
+    },
 }
 
+/// Controls whether the pinned RakNet handshake uses cookies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CookieMode {
+    /// Advertise and require RakNet handshake cookies.
     Enabled,
+    /// Use the cookie-less RakNet handshake mode.
     Disabled,
 }
 
+/// Validated configuration for an Ardosia network listener.
+///
+/// Protocols are unique and non-empty, connection capacity is non-zero, and
+/// worker sharding is either left to the transport default or explicitly set
+/// to a non-zero count.
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     bind_addr: SocketAddr,
@@ -31,6 +49,16 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
+    /// Creates a validated listener configuration.
+    ///
+    /// The advertisement is opaque to this crate and is forwarded unchanged to
+    /// the transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NetworkConfigError::NoProtocols`] when no RakNet protocol is
+    /// supplied, or [`NetworkConfigError::DuplicateProtocol`] when a protocol
+    /// appears more than once.
     pub fn new(
         bind_addr: SocketAddr,
         raknet_protocols: impl IntoIterator<Item = u8>,
@@ -62,6 +90,10 @@ impl NetworkConfig {
         })
     }
 
+    /// Overrides the transport's automatic worker-shard count.
+    ///
+    /// Omitting this call preserves the pinned transport's runtime default.
+    #[must_use]
     pub fn with_worker_shards(mut self, worker_shards: NonZeroUsize) -> Self {
         self.worker_shards = Some(worker_shards);
         self
