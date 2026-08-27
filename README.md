@@ -114,10 +114,11 @@ Local verification is the current source of truth for active development. Hosted
 
 The former in-repository load generator/scenario/benchmark harness was intentionally removed after localhost scaling failures were traced to test-environment ceilings and shared-source-IP artifacts rather than a demonstrated transport-capacity wall.
 
-The evidence remains preserved in:
+The scoped evidence and provenance are preserved in:
 
-- `docs/benchmark-history.md` — interpretation and conclusions;
-- `docs/results/` — raw historical reports.
+- `docs/results/2026-08-18-connect-300.md`;
+- `docs/results/2026-08-18-churn-500.md`;
+- `docs/results/2026-08-18-steady-1000-profile.md`.
 
 Important preserved findings include the load-generator `RLIMIT_NOFILE` wall, the shared per-IP connected processing-budget artifact at large localhost client counts, and the fair worker-scheduling correction. These findings must not be generalized into universal capacity claims or used to weaken production abuse-control defaults.
 
