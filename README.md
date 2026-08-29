@@ -93,7 +93,9 @@ The workspace pins `ardosia-raknet` by exact Git revision rather than a moving b
 f127fce27a206a51a1d39ffa7a9bbed98d10ea14
 ```
 
-A development machine therefore needs Git credentials capable of reading the private hardfork. If Cargo's built-in Git transport cannot use the local credential setup, `CARGO_NET_GIT_FETCH_WITH_CLI=true` can delegate fetching to the system Git client.
+`ardosia-raknet` is the public reusable transport component of the stack, so fetching that Git dependency does not require credentials. The exact-SHA pin remains deliberate: this hardfork is pre-release and Ardosia records the transport revision it has actually verified instead of tracking a moving branch.
+
+The surrounding `ardosia-network`, `ardosia-protocol`, and `ardosia-server` repositories remain private development components; their separate access and licensing decisions do not change the public availability of the RakNet hardfork.
 
 ## Verification
 
