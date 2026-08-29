@@ -32,6 +32,9 @@ Additional evidence, reproducer, or benchmark context:
 
 Describe effects on connection admission, peer lifecycle, backpressure, shutdown, malformed input, resource bounds, or failure behavior. Write `none` when genuinely not applicable.
 
-## Licensing note
+## Licensing
 
-This repository does not yet have a project-level open-source license or finalized external contribution terms. External code contributions must not be merged until those terms are deliberately established. Maintainer-authored changes may proceed under the repository's current governance.
+- [ ] I have the right to submit this contribution under Apache-2.0.
+- [ ] I did not add third-party code, assets, dumps, or generated/decompiled material without documenting compatible provenance and licensing.
+
+Unless explicitly stated otherwise, contributions intentionally submitted for inclusion are accepted under Apache-2.0, consistent with section 5 of the project license.

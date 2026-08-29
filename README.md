@@ -1,10 +1,13 @@
 # ardosia-network
 
+[![CI](https://github.com/ardosia/ardosia-network/actions/workflows/ci.yml/badge.svg)](https://github.com/ardosia/ardosia-network/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 Game-agnostic asynchronous payload transport for Ardosia over the standalone [`ardosia-raknet`](https://github.com/ardosia/ardosia-raknet) implementation.
 
 `ardosia-network` owns listener and connection lifecycle, validated transport configuration, bounded payload delivery, backpressure handling, and graceful shutdown. It deliberately does not interpret Minecraft packets or own player, session, game, or world semantics.
 
-> **Pre-release / licensing status:** this repository does not currently have a project-level open-source license. The crate remains `publish = false`. Do not treat the repository as open source or redistribute its Ardosia-owned code until an explicit `LICENSE` is added. The Apache-2.0 license of `ardosia-raknet` does not automatically license this repository.
+> **Pre-release status:** the source is licensed under Apache-2.0, but the crate remains `publish = false` and is not published to crates.io. Git dependencies should be pinned to an exact verified revision.
 
 ## Current target
 
@@ -112,7 +115,7 @@ f127fce27a206a51a1d39ffa7a9bbed98d10ea14
 
 The RakNet hardfork is public, so fetching this dependency does not require private Git credentials. The exact-SHA pin remains deliberate: Ardosia records the transport revision it has actually verified instead of tracking a moving branch.
 
-The fact that this repository depends on Apache-2.0 code does not select a license for Ardosia-owned code in this repository.
+`ardosia-network` and `ardosia-raknet` are each licensed under Apache-2.0 independently. The Network license applies to Ardosia-owned code in this repository; it is not inherited implicitly from the dependency.
 
 ## Historical benchmark evidence
 
@@ -148,9 +151,15 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for scope and contribution rules and [`
 
 ## Publication status
 
-The crate is intentionally `publish = false`. No crates.io publication or project-level licensing decision is implied by making the repository public-ready.
+The source repository is licensed under the [Apache License 2.0](LICENSE). The crate remains intentionally `publish = false`; making the source public does not imply a crates.io release.
 
-Before any public OSS release, Ardosia must deliberately select a license, add the corresponding license metadata/file, and revisit external contribution terms. Until then, issues and security reports are useful, but external code contributions should not be merged.
+For Git consumers, pin an exact commit rather than a moving branch while the API is pre-release.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
+
+Contributions intentionally submitted for inclusion are accepted under the same license unless explicitly stated otherwise, consistent with Apache-2.0 section 5.
 
 ## Project relationship
 
