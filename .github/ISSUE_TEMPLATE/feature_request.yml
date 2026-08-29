@@ -1,0 +1,45 @@
+name: Feature or design proposal
+description: Propose a focused change to the ardosia-network facade
+title: "proposal: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ardosia-network is intentionally a small game-agnostic facade. Proposals should explain why the behavior belongs here instead of ardosia-raknet or a higher application/protocol layer.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This proposal concerns facade configuration, lifecycle, payload delivery, backpressure, shutdown, or facade-level testing/documentation.
+          required: true
+        - label: This proposal does not require Minecraft/game semantics in ardosia-network.
+          required: true
+        - label: I am not proposing a low-level RakNet algorithm change that belongs in ardosia-raknet.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete problem or limitation should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful change and any public API impact.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Why is a change in this facade preferable to solving it in ardosia-raknet or a higher layer?
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility, lifecycle, and security considerations
+      description: Note any impact on backpressure, bounded queues, connection lifecycle, RakNet pinning, or compatibility claims.
