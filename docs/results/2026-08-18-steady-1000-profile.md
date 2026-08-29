@@ -2,6 +2,8 @@
 
 Date: 2026-08-19
 
+> **Historical evidence:** this report records the benchmark harness, vendored transport layout, toolchain, and profiler environment as they existed at measurement time. Those identifiers are preserved for provenance and are **not current setup instructions**. The active repository now uses Rust `1.98.0`, pins the public `ardosia-raknet` hardfork by exact Git revision, and no longer contains the old load generator/profiling harness. See the repository README for current development instructions.
+
 ## Run identity
 
 - Ardosia commit: `43f68c7fb70987e8d941bfa7f3fff390797d118e`
@@ -49,7 +51,7 @@ Measured duration was ~60.001 s.
 
 ## Resource characterization
 
-Because this is a diagnostic profiling build with profiler overhead, its CPU numbers are not treated as interchangeable with the trusted release-only capacity baseline.
+Because this was a diagnostic profiling build with profiler overhead, its CPU numbers are not interchangeable with release-only capacity measurements.
 
 During the measured profile window:
 
@@ -68,26 +70,26 @@ During the measured profile window:
 
 - Tokio multi-thread worker context run: 4.21% self
 - Tokio broadcast receiver `recv_ref`: 3.60% self
-- vendor `TransportServer::prune_idle_sessions`: 3.56% self
-- vendor `TransportServer::recv_and_process`: 2.83% self
+- then-vendored `TransportServer::prune_idle_sessions`: 3.56% self
+- then-vendored `TransportServer::recv_and_process`: 2.83% self
 - `Timespec::sub_timespec`: 2.61% self
 - benchmark server `run_connection_task`: 2.35% self
-- vendor `Session::on_tick`: 2.29% self
+- then-vendored `Session::on_tick`: 2.29% self
 - Tokio notify/waker operations: multiple ~1-2% self entries
 - contended futex mutex lock: 1.48% self
 - allocator (`malloc`): 1.34% self in the flat report, with additional allocator cost visible in collapsed stacks
-- clock/timekeeping paths (`clock_gettime`/VDSO/Instant arithmetic) are recurring across the folded stacks
+- clock/timekeeping paths (`clock_gettime`/VDSO/Instant arithmetic) recurring across folded stacks
 
-Lower individual costs include RakNet payload queuing, ingress processing, frame/datagram codec work, ACK handling, rate limiting, queue operations, UDP recv/send, and Ardosia backend/channel work. No encode/decode, retransmission, fragmentation, queue-pressure, or syscall path individually dominates the profile.
+Lower individual costs included RakNet payload queuing, ingress processing, frame/datagram codec work, ACK handling, rate limiting, queue operations, UDP recv/send, and Ardosia backend/channel work. No encode/decode, retransmission, fragmentation, queue-pressure, or syscall path individually dominated the profile.
 
 ## Interpretation
 
-The evidence points to distributed runtime/session-maintenance overhead rather than one obvious packet-processing hotspot. At 1000 steady sessions, a meaningful fraction of CPU is spent in periodic lifecycle work (`prune_idle_sessions`, `Session::on_tick`), scheduler wakeups/synchronization, monotonic time queries, allocator activity, and channel/notification machinery.
+The evidence pointed to distributed runtime/session-maintenance overhead rather than one obvious packet-processing hotspot. At 1000 steady sessions, a meaningful fraction of CPU was spent in periodic lifecycle work, scheduler wakeups/synchronization, monotonic time queries, allocator activity, and channel/notification machinery.
 
-There is no single vendor hotspot large enough in this profile to justify a speculative RakNet patch. In particular, correctness remains perfect under the measured workload, retransmission/NACK/drop counters remain zero, queues stay tiny, and the hot symbols are spread across maintenance/runtime responsibilities.
+There was no single transport hotspot large enough in this profile to justify a speculative RakNet patch. Correctness remained perfect under the measured workload, retransmission/NACK/drop counters remained zero, queues stayed small, and hot symbols were spread across maintenance/runtime responsibilities.
 
-## Decision
+## Historical disposition
 
-**Optimization deferred pending churn evidence.**
+At the time of this profile, the next planned experiment was `churn-500`. That experiment was subsequently completed successfully and is preserved in [`2026-08-18-churn-500.md`](2026-08-18-churn-500.md).
 
-Do not patch the pinned RakNet vendor from this profile alone. Proceed with the approved constant-population `churn-500` workload (500 target active sessions, 25 replacements/s, 60-second measured window, full steady-500 traffic). Churn will show whether the maintenance/lifecycle paths highlighted here become materially more expensive or expose correctness/cleanup pressure under continuous session turnover.
+The old profiling/load-generation harness has since been removed. Current development should not recreate or optimize against this profile without a new, explicitly designed benchmark environment. This report is machine/commit/workload-specific evidence, not a universal capacity claim or a current optimization roadmap.
