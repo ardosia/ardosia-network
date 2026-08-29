@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible problem in the ardosia-network facade
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not use this form for vulnerabilities; follow SECURITY.md instead.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reproduced this against the current development line or identified the exact affected commit.
+          required: true
+        - label: This is about the ardosia-network facade rather than a low-level RakNet algorithm or Minecraft/game behavior.
+          required: true
+        - label: This report does not contain secrets, credentials, private keys, or proprietary game assets.
+          required: true
+  - type: input
+    id: revision
+    attributes:
+      label: ardosia-network revision
+      description: Commit SHA or branch/revision where the problem occurs.
+      placeholder: 0123456789abcdef...
+    validations:
+      required: true
+  - type: input
+    id: raknet_revision
+    attributes:
+      label: ardosia-raknet revision
+      description: Exact pinned RakNet revision used by the affected build.
+      placeholder: f127fce27a206a51a1d39ffa7a9bbed98d10ea14
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, Rust version, and relevant transport configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal steps, code, or lifecycle sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, backtraces, or additional evidence
+      description: Remove tokens, credentials, private addresses, and unrelated sensitive data.
