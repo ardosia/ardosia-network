@@ -1,28 +1,29 @@
 # ardosia-network
 
-Game-agnostic asynchronous payload transport for Ardosia over the standalone `ardosia-raknet` implementation.
+Game-agnostic asynchronous payload transport for Ardosia over the standalone [`ardosia-raknet`](https://github.com/ardosia/ardosia-raknet) implementation.
 
 `ardosia-network` owns listener and connection lifecycle, validated transport configuration, bounded payload delivery, backpressure handling, and graceful shutdown. It deliberately does not interpret Minecraft packets or own player, session, game, or world semantics.
 
+> **Pre-release / licensing status:** this repository does not currently have a project-level open-source license. The crate remains `publish = false`. Do not treat the repository as open source or redistribute its Ardosia-owned code until an explicit `LICENSE` is added. The Apache-2.0 license of `ardosia-raknet` does not automatically license this repository.
+
 ## Current target
 
-The active Ardosia stack targets:
+The active Ardosia stack currently uses:
 
-- MCPE game protocol: `84`
-- RakNet protocol: `8`
 - Rust: `1.98.0`
+- RakNet protocol: `8`
 - RakNet package: `raknet-rust` `0.2.0`
 - hardfork repository: `ardosia/ardosia-raknet`
 - pinned hardfork revision: `f127fce27a206a51a1d39ffa7a9bbed98d10ea14`
 - preserved upstream baseline: `3edfb4170e6cb5aeed992b09b50176fb7e5b6079`
 
-RakNet protocol selection, the opaque unconnected-pong advertisement, handshake-cookie mode, connection capacity, and optional worker sharding are supplied by the application rather than hard-coded into this crate.
+Ardosia's application currently configures this facade for the historical MCPE 0.15.10 / game-protocol-84 target, but that game protocol is not part of this crate. RakNet protocol selection, the opaque unconnected-pong advertisement, handshake-cookie mode, connection capacity, and optional worker sharding are supplied by the application.
 
-## Architecture
+## Architecture and scope
 
 ```text
-ardosia-server
-   |-- ardosia-protocol
+application / game layer
+   |-- protocol semantics
    `-- ardosia-network
           `-- ardosia-raknet
 ```
@@ -39,11 +40,27 @@ ardosia-server
 ### `ardosia-network` does not own
 
 - RakNet handshake, reliability, retransmission, congestion-control, or sharding algorithms;
-- MCPE packet definitions, codecs, or session state;
+- Minecraft packet definitions, codecs, or game-session state;
 - player, gameplay, world, or application policy;
 - a production load-generation or observability subsystem.
 
-Consumers above this layer should not need to import hardfork implementation types directly.
+Algorithmic RakNet transport changes belong in `ardosia-raknet`. Game-protocol semantics and application behavior belong above this facade.
+
+## Supported public API
+
+The intended crate-root surface is deliberately small:
+
+```text
+CookieMode
+NetworkConfig
+NetworkConfigError
+NetworkServer
+Connection
+Reliability
+NetworkError
+```
+
+Consumers should not need to import `raknet-rust` implementation types directly.
 
 ## Usage
 
@@ -77,13 +94,13 @@ Regression coverage verifies that:
 
 - protocol `8` is accepted when configured;
 - unsupported RakNet protocol versions are rejected;
-- a protocol-8 hardfork client can complete the RakNet handshake and reach the Ardosia accept boundary;
+- a protocol-8 hardfork client can complete the RakNet handshake and reach the facade's accept boundary;
 - cookie mode and the advertisement reach the underlying transport configuration;
 - reliable-ordered payloads round-trip through the public facade;
 - fragmented reliable-ordered payloads reassemble correctly;
 - the RakNet implementation does not leak through the crate-root public surface.
 
-A real MCPE 0.15.10 client has reached the `ardosia-server` protocol/session layer over this transport profile.
+The larger Ardosia stack has also reached its historical MCPE 0.15.10 pre-chunk session boundary over this transport profile. That is integration context, not a claim that this crate implements Minecraft semantics.
 
 ## Dependency reproducibility
 
@@ -93,41 +110,48 @@ The workspace pins `ardosia-raknet` by exact Git revision rather than a moving b
 f127fce27a206a51a1d39ffa7a9bbed98d10ea14
 ```
 
-`ardosia-raknet` is the public reusable transport component of the stack, so fetching that Git dependency does not require credentials. The exact-SHA pin remains deliberate: this hardfork is pre-release and Ardosia records the transport revision it has actually verified instead of tracking a moving branch.
+The RakNet hardfork is public, so fetching this dependency does not require private Git credentials. The exact-SHA pin remains deliberate: Ardosia records the transport revision it has actually verified instead of tracking a moving branch.
 
-The surrounding `ardosia-network`, `ardosia-protocol`, and `ardosia-server` repositories remain private development components; their separate access and licensing decisions do not change the public availability of the RakNet hardfork.
-
-## Verification
-
-Run the local Rust `1.98.0` gate:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
-cargo doc --no-deps
-RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps
-git diff --check
-```
-
-Local verification is the current source of truth for active development. Hosted CI is not required for every development commit.
+The fact that this repository depends on Apache-2.0 code does not select a license for Ardosia-owned code in this repository.
 
 ## Historical benchmark evidence
 
-The former in-repository load generator/scenario/benchmark harness was intentionally removed after localhost scaling failures were traced to test-environment ceilings and shared-source-IP artifacts rather than a demonstrated transport-capacity wall.
+The old in-repository load generator, benchmark scenarios, profiling tooling, and benchmark workflow were intentionally removed after their diagnostic questions were answered. They are not part of the current workspace and should not be resurrected as current operational guidance.
 
-The scoped evidence and provenance are preserved in:
+Three dated reports remain as historical engineering evidence:
 
-- `docs/results/2026-08-18-connect-300.md`;
-- `docs/results/2026-08-18-churn-500.md`;
-- `docs/results/2026-08-18-steady-1000-profile.md`.
+- [`docs/results/2026-08-18-connect-300.md`](docs/results/2026-08-18-connect-300.md)
+- [`docs/results/2026-08-18-churn-500.md`](docs/results/2026-08-18-churn-500.md)
+- [`docs/results/2026-08-18-steady-1000-profile.md`](docs/results/2026-08-18-steady-1000-profile.md)
 
-Important preserved findings include the load-generator `RLIMIT_NOFILE` wall, the shared per-IP connected processing-budget artifact at large localhost client counts, and the fair worker-scheduling correction. These findings must not be generalized into universal capacity claims or used to weaken production abuse-control defaults.
+Those reports describe the repository layout, toolchain, branch names, vendoring model, and benchmark harness **as they existed at measurement time**. They are not current setup instructions or production-capacity claims.
 
-## RakNet boundary
+Important preserved findings include the load-generator `RLIMIT_NOFILE` wall, the shared-source-IP policy artifact at large localhost client counts, and a transport worker-scheduling correction. Results are machine/commit/workload-specific and must not be generalized into universal player-capacity claims or used to weaken production abuse-control defaults.
 
-`ardosia-raknet` remains a standalone generally usable RakNet hardfork. Algorithmic transport changes belong there and should be backed by correctness evidence, regression tests, profiling, or meaningful benchmark evidence.
+## Development and verification
 
-`ardosia-network` should remain small and stable as the facade between that implementation and Ardosia application code.
+Use Rust `1.98.0` and run the complete local gate:
 
-Ardosia is an independent project and is not affiliated with Mojang Studios or Microsoft.
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-targets --locked
+cargo test --workspace --doc --locked
+cargo doc --workspace --no-deps --locked
+RUSTDOCFLAGS="-D missing_docs" cargo doc --workspace --no-deps --locked
+git diff --check
+```
+
+GitHub Actions runs the same Rust gate on pushes to `main`, pull requests, and manual dispatches. Local verification remains useful before pushing.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for scope and contribution rules and [`SECURITY.md`](SECURITY.md) for vulnerability reporting.
+
+## Publication status
+
+The crate is intentionally `publish = false`. No crates.io publication or project-level licensing decision is implied by making the repository public-ready.
+
+Before any public OSS release, Ardosia must deliberately select a license, add the corresponding license metadata/file, and revisit external contribution terms. Until then, issues and security reports are useful, but external code contributions should not be merged.
+
+## Project relationship
+
+`ardosia-network` is part of the independent Ardosia project and is not affiliated with Mojang Studios or Microsoft. `ardosia-raknet` is maintained separately as a generally reusable RakNet hardfork; upstream `mcbe-rs/raknet-rust` does not endorse or support Ardosia.
