@@ -2,16 +2,11 @@
 
 `ardosia-network` is a small, game-agnostic asynchronous payload-transport facade over the pinned `ardosia-raknet` hardfork.
 
-## Licensing status
+## License and contribution terms
 
-This repository does not currently have a project-level open-source license. Until an explicit `LICENSE` and contribution terms are added:
+This repository is licensed under Apache-2.0. Unless you explicitly state otherwise, contributions intentionally submitted for inclusion in this repository are provided under the same Apache-2.0 terms, consistent with section 5 of the license.
 
-- issues, design discussion, bug reports, and security reports are welcome;
-- maintainers may continue normal repository development;
-- external code contributions should not be merged;
-- no contribution should imply that Apache-2.0 from `ardosia-raknet` automatically applies to Ardosia-owned code here.
-
-This policy should be revisited together with the repository's license decision before public OSS contribution intake opens.
+Do not submit code, assets, protocol dumps, decompiled material, credentials, or other content that you do not have the right to contribute.
 
 ## Scope
 
@@ -77,9 +72,11 @@ Keep pull requests narrowly scoped and explain:
 3. whether the public API changes;
 4. whether the pinned RakNet revision changes;
 5. what verification was run;
-6. any security, backpressure, lifecycle, or compatibility implications.
+6. any security, backpressure, lifecycle, compatibility, or licensing implications.
 
 Do not weaken checks, abuse-control behavior, or bounded-queue behavior to make a local benchmark pass.
+
+By opening a pull request, you represent that you have the right to submit the contribution under Apache-2.0.
 
 ## Security reports
 
