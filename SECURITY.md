@@ -4,11 +4,11 @@
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for a suspected vulnerability.
+Please do not open a public issue containing vulnerability details.
 
-Use GitHub's private vulnerability-reporting or security-advisory flow for this repository when it is available. If that flow is not available to you, contact an Ardosia maintainer privately and include enough information to reproduce and assess the issue without publishing exploit details.
+When GitHub private vulnerability reporting is enabled for this repository, use the repository's **Security → Report a vulnerability** flow. If private reporting is not available, open a non-sensitive issue asking maintainers for a private security contact **without including exploit details**, then continue the report privately.
 
-A useful report includes:
+A useful private report includes:
 
 - affected commit or revision;
 - operating system and Rust version;
