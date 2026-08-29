@@ -34,4 +34,4 @@ Describe effects on connection admission, peer lifecycle, backpressure, shutdown
 
 ## Licensing note
 
-This repository does not yet have a project-level open-source license or finalized external contribution terms. External code contributions must not be merged until those terms are deliberately established. Maintainer-authored changes may proceed under the repository's current private-development policy.
+This repository does not yet have a project-level open-source license or finalized external contribution terms. External code contributions must not be merged until those terms are deliberately established. Maintainer-authored changes may proceed under the repository's current governance.
