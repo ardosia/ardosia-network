@@ -120,6 +120,8 @@ async fn handle_server_event(
 ) -> bool {
     match event {
         RaknetServerEvent::PeerConnected { peer_id, addr, .. } => {
+            eprintln!("raknet peer connected: {addr}");
+
             let (inbound_tx, inbound_rx) = mpsc::channel(PER_CONNECTION_INBOUND_CAPACITY);
             let (close_tx, close_rx) = watch::channel(CloseState::Open);
 
@@ -171,13 +173,33 @@ async fn handle_server_event(
             }
             false
         }
-        RaknetServerEvent::PeerDisconnected { peer_id, .. } => {
+        RaknetServerEvent::PeerDisconnected { peer_id, addr, reason } => {
+            eprintln!("raknet peer disconnected: {addr} ({reason:?})");
             if let Some(peer) = peers.remove(&peer_id) {
                 let _ = peer.close.send(CloseState::Closed);
             }
             false
         }
-        RaknetServerEvent::DecodeError { .. } => false,
+        RaknetServerEvent::OfflinePacket { addr, packet } => {
+            eprintln!("raknet offline packet from {addr}: {packet:?}");
+            false
+        }
+        RaknetServerEvent::DecodeError { addr, error } => {
+            eprintln!("raknet decode error from {addr}: {error}");
+            false
+        }
+        RaknetServerEvent::PeerRateLimited { addr } => {
+            eprintln!("raknet peer rate limited: {addr}");
+            false
+        }
+        RaknetServerEvent::SessionLimitReached { addr } => {
+            eprintln!("raknet session limit reached: {addr}");
+            false
+        }
+        RaknetServerEvent::ProxyDropped { addr } => {
+            eprintln!("raknet proxy dropped packet from {addr}");
+            false
+        }
         RaknetServerEvent::WorkerError { shard_id, message } => {
             let message = format!("RakNet worker {shard_id} failed: {message}");
             let _ = accept_tx.try_send(Err(NetworkError::BackendFailure { message }));
@@ -188,8 +210,7 @@ async fn handle_server_event(
             let _ = accept_tx.try_send(Err(NetworkError::BackendFailure { message }));
             true
         }
-        RaknetServerEvent::Metrics { .. } => false,
-        _ => false,
+        RaknetServerEvent::Metrics { .. } | RaknetServerEvent::ReceiptAcked { .. } => false,
     }
 }
 
