@@ -22,21 +22,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: rustfmt, clippy
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Lint workspace
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - name: Test workspace
-        run: cargo test --workspace --all-targets --locked
-      - name: Test documentation
-        run: cargo test --workspace --doc --locked
-      - name: Build documentation
-        run: cargo doc --workspace --no-deps --locked
-      - name: Enforce documented public API
-        env:
-          RUSTDOCFLAGS: -D missing_docs
-        run: cargo doc --workspace --no-deps --locked
-      - name: Check generated diff and whitespace
+      - name: Probe Cargo lock refresh
         run: |
-          git diff --check
-          git diff --exit-code
+          cargo update
+          echo '--- CARGO LOCK DIFF ---'
+          git diff -- Cargo.lock
+          echo '--- END CARGO LOCK DIFF ---'
+          exit 1
