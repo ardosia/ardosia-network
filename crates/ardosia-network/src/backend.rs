@@ -154,6 +154,8 @@ async fn handle_server_event(
         RaknetServerEvent::Packet {
             peer_id, payload, ..
         } => {
+            eprintln!("raknet application packet: {} bytes", payload.len());
+
             let dispatch = match peers.get(&peer_id) {
                 Some(peer) => peer.inbound.try_send(payload),
                 None => return false,
