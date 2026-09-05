@@ -14,4 +14,4 @@ repository = "https://github.com/ardosia/ardosia-network"
 bytes = "1.8"
 thiserror = "2.0"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal", "process", "io-util", "io-std", "fs"] }
-raknet-rust = { git = "https://github.com/ardosia/ardosia-raknet", rev = "f127fce27a206a51a1d39ffa7a9bbed98d10ea14" }
+raknet-rust = { git = "https://github.com/ardosia/ardosia-raknet", rev = "55b57787b6715ef2a931631ef4b690e3df0651e5" }
