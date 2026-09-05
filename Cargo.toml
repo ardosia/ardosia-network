@@ -12,4 +12,4 @@ rust-version = "1.98"
 bytes = "1.8"
 thiserror = "2.0"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal", "process", "io-util", "io-std", "fs"] }
-raknet-rust = { git = "https://github.com/ardosia/ardosia-raknet", rev = "5a370328b2b0cede6aacd0eaea40a1e20c98ec85" }
+raknet-rust = { git = "https://github.com/ardosia/ardosia-raknet", rev = "c304b758b7bba6e43d6a594a53e2de70b3633606" }
