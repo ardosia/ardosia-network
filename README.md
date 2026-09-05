@@ -17,7 +17,7 @@ The active Ardosia stack currently uses:
 - RakNet protocol: `8`
 - RakNet package: `raknet-rust` `0.2.0`
 - hardfork repository: `ardosia/ardosia-raknet`
-- pinned hardfork revision: `f127fce27a206a51a1d39ffa7a9bbed98d10ea14`
+- pinned hardfork revision: `55b57787b6715ef2a931631ef4b690e3df0651e5`
 - preserved upstream baseline: `3edfb4170e6cb5aeed992b09b50176fb7e5b6079`
 
 Ardosia's application currently configures this facade for the historical MCPE 0.15.10 / game-protocol-84 target, but that game protocol is not part of this crate. RakNet protocol selection, the opaque unconnected-pong advertisement, handshake-cookie mode, connection capacity, and optional worker sharding are supplied by the application.
@@ -110,7 +110,7 @@ The larger Ardosia stack has also reached its historical MCPE 0.15.10 pre-chunk 
 The workspace pins `ardosia-raknet` by exact Git revision rather than a moving branch:
 
 ```text
-f127fce27a206a51a1d39ffa7a9bbed98d10ea14
+55b57787b6715ef2a931631ef4b690e3df0651e5
 ```
 
 The RakNet hardfork is public, so fetching this dependency does not require private Git credentials. The exact-SHA pin remains deliberate: Ardosia records the transport revision it has actually verified instead of tracking a moving branch.
