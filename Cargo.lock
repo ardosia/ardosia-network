@@ -248,7 +248,7 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 [[package]]
 name = "raknet-rust"
 version = "0.2.0"
-source = "git+https://github.com/ardosia/ardosia-raknet?rev=f127fce27a206a51a1d39ffa7a9bbed98d10ea14#f127fce27a206a51a1d39ffa7a9bbed98d10ea14"
+source = "git+https://github.com/ardosia/ardosia-raknet?rev=55b57787b6715ef2a931631ef4b690e3df0651e5#55b57787b6715ef2a931631ef4b690e3df0651e5"
 dependencies = [
  "ahash",
  "bitflags",
@@ -497,9 +497,3 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
-
-[[package]]
-name = "zeroize"
-version = "1.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
