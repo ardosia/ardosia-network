@@ -20,7 +20,7 @@ The active Ardosia stack currently uses:
 - pinned hardfork revision: `55b57787b6715ef2a931631ef4b690e3df0651e5`
 - preserved upstream baseline: `3edfb4170e6cb5aeed992b09b50176fb7e5b6079`
 
-Ardosia's application currently configures this facade for the historical MCPE 0.15.10 / game-protocol-84 target, but that game protocol is not part of this crate. RakNet protocol selection, the opaque unconnected-pong advertisement, handshake-cookie mode, connection capacity, and optional worker sharding are supplied by the application.
+Ardosia's application configures this facade for the historical MCPE 0.15.10 / game-protocol-84 target, but that game protocol is not part of this crate. RakNet protocol selection, the opaque unconnected-pong advertisement, handshake-cookie mode, connection capacity, and optional worker sharding are supplied by the application.
 
 ## Architecture and scope
 
@@ -65,6 +65,12 @@ NetworkError
 
 Consumers should not need to import `raknet-rust` implementation types directly.
 
+## Lifecycle contract
+
+`NetworkServer` owns the backend task that drives the pinned RakNet server. `shutdown()` sends the backend shutdown command when possible and **always joins that task before returning**, including command/response-path failure cases. A shutdown error must not silently turn the backend into a detached task.
+
+Accepted `Connection` values are independent application handles. Application code owns the lifetime of its player/session tasks; this crate does not spawn game sessions on their behalf.
+
 ## Usage
 
 ```rust
@@ -103,7 +109,7 @@ Regression coverage verifies that:
 - fragmented reliable-ordered payloads reassemble correctly;
 - the RakNet implementation does not leak through the crate-root public surface.
 
-The larger Ardosia stack has also reached its historical MCPE 0.15.10 pre-chunk session boundary over this transport profile. That is integration context, not a claim that this crate implements Minecraft semantics.
+The wider Ardosia stack has completed login, protocol-84 bootstrap, real chunk streaming, `PLAYER_SPAWN`, and an actual in-world join from Minecraft Windows 10 Edition Beta 0.15.10 over this transport profile. That is end-to-end integration evidence for the pinned stack, not a claim that this crate implements Minecraft semantics or a universal player-capacity guarantee.
 
 ## Dependency reproducibility
 
