@@ -58,13 +58,17 @@ impl NetworkServer {
             .ok_or(NetworkError::BackendStopped)?
     }
 
-    /// Gracefully shuts down the listener and waits for the backend task to exit.
+    /// Gracefully shuts down the listener and always joins its backend task.
+    ///
+    /// The backend join is attempted even when its command/response path has
+    /// already closed. This keeps task ownership explicit and avoids turning a
+    /// shutdown-path error into a detached backend task.
     ///
     /// # Errors
     ///
-    /// Returns [`NetworkError::BackendStopped`] if the shutdown command or
-    /// response channel closes unexpectedly, [`NetworkError::BackendFailure`]
-    /// if the backend task cannot be joined, or the transport shutdown error.
+    /// Returns [`NetworkError::BackendStopped`] when the shutdown command or
+    /// response path has already closed, [`NetworkError::BackendFailure`] when
+    /// the backend task cannot be joined, or the transport shutdown error.
     pub async fn shutdown(self) -> Result<(), NetworkError> {
         let Self {
             accept_rx: _,
@@ -73,16 +77,19 @@ impl NetworkServer {
         } = self;
 
         let (response_tx, response_rx) = oneshot::channel();
-        commands
+        let shutdown_result = if commands
             .send(BackendCommand::Shutdown {
                 response: response_tx,
             })
             .await
-            .map_err(|_| NetworkError::BackendStopped)?;
-
-        let shutdown_result = response_rx
-            .await
-            .map_err(|_| NetworkError::BackendStopped)?;
+            .is_err()
+        {
+            Err(NetworkError::BackendStopped)
+        } else {
+            response_rx
+                .await
+                .map_err(|_| NetworkError::BackendStopped)?
+        };
 
         backend
             .await
