@@ -60,9 +60,9 @@ impl NetworkServer {
 
     /// Gracefully shuts down the listener and always joins its backend task.
     ///
-    /// The backend join is attempted even when its command/response path has
-    /// already closed. This keeps task ownership explicit and avoids turning a
-    /// shutdown-path error into a detached backend task.
+    /// The backend join is attempted even when its command or response path has
+    /// already closed. This keeps task ownership explicit and prevents an error
+    /// path from turning the backend into a detached task.
     ///
     /// # Errors
     ///
@@ -86,9 +86,10 @@ impl NetworkServer {
         {
             Err(NetworkError::BackendStopped)
         } else {
-            response_rx
-                .await
-                .map_err(|_| NetworkError::BackendStopped)?
+            match response_rx.await {
+                Ok(result) => result,
+                Err(_) => Err(NetworkError::BackendStopped),
+            }
         };
 
         backend
