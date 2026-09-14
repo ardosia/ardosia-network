@@ -4,9 +4,15 @@
 //! Game-agnostic asynchronous payload transport for Ardosia.
 //!
 //! The crate owns listener and connection lifecycle over the pinned RakNet
-//! transport. It deliberately has no MCPE packet, player, or world knowledge.
+//! transport. It deliberately has no MCPE packet, player, gameplay, or world
+//! knowledge. Application-specific compatibility choices such as the MCPE
+//! protocol-8 cookie-less profile are supplied through [`NetworkConfig`] rather
+//! than being hard-coded into this crate.
 //!
 //! # Example
+//!
+//! The example demonstrates the generic configuration surface; applications may
+//! choose a different cookie mode or advertisement for their compatibility target.
 //!
 //! ```no_run
 //! use std::net::{Ipv4Addr, SocketAddr};
