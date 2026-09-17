@@ -1,42 +1,33 @@
 # Current State
 
-Last updated: 2026-09-16
-Current milestone: centralized-documentation migration complete; runtime branch reconciliation next
+Last updated: 2026-09-17
+Current milestone: stable lower-layer transport facade; no current identity/map/login runtime delta
 Default branch: `main`
-Active maintenance branch: `cleanup/runtime-hardening-clean`
-Current server-consumed revision: `f71da57dab3c28e6ccbcee5cbdc3376aac9f7fdd`
+
+## Role
+`ardosia-network` remains the game-agnostic async connection/payload layer between the server and `ardosia-raknet`. Gameplay, protocol-84 semantics, account identity, inventory, and world behavior do not belong here.
 
 ## Working
-- Game-agnostic network facade over the pinned RakNet hardfork.
-- Opaque payload transport, connection lifecycle, bounded delivery/backpressure, and graceful shutdown surfaces are implemented.
-- Current server integration reaches real-client protocol-84 gameplay through the pinned network revision.
-- `.agent/` continuity harness remains local and authoritative for execution state.
-- Durable repository overview and all three historical benchmark reports have been migrated to `ardosia/ardosia-docs`.
-- The centrally migrated benchmark reports were re-fetched with blob SHAs identical to their source copies before the local duplicates were removed.
-- Repository-local README is now intentionally minimal/operational; contribution, security, license, build, CI, source, and toolchain material remain with this repository.
+- Public connection/listener facade over the pinned RakNet hardfork.
+- Server-consumed revision remains `f71da57dab3c28e6ccbcee5cbdc3376aac9f7fdd`.
+- Network consumes RakNet revision `55b57787b6715ef2a931631ef4b690e3df0651e5`.
+- Canonical durable documentation has been centralized in `ardosia-docs`; docs migration is no longer active work.
+- `.agent/{CONTEXT,STATE,DECISIONS,NEXT}.md` is the local continuity harness under the Project workflow.
 
-## Partially working / branch state
-- `cleanup/runtime-hardening-clean` remains ahead of `main` and contains runtime hardening plus maintenance state.
-- The server intentionally pins `f71da57...` on that maintenance line, not current `main`.
+## Current convergence impact
+The completed 2026-09-17 identity/map/login research does not currently require changes in this repository. Identity/authentication/gameplay semantics remain above the network boundary.
 
-## Broken / failing
-- No standalone network defect is established by the documentation cleanup evidence.
+If future evidence changes connection/payload lifecycle expectations, the corresponding network change must be implemented and validated here or left as an explicit `.agent/NEXT.md` delta. Evidence completion alone is not a network runtime PASS.
 
-## Test status
-- Central documentation copy verification: **PASS** — migrated benchmark blobs matched the original source blob SHAs before deletion.
-- Source duplicate cleanup on `main` and `cleanup/runtime-hardening-clean`: **PASS** — repository-local historical benchmark Markdown was removed after verification.
-- Full standalone network Rust gate: **NOT RUN** in this documentation-only migration round.
-- GitHub Actions current status: **NOT RUN** / not queried in this round.
-- Recent wider server runtime integration: **PASS**, but not a substitute for the standalone crate gate.
+## Branch/pin state
+A maintenance branch may be ahead of the exact server-consumed revision. Do not move the server's network pin merely because branch HEAD is newer; reconcile it only as a coherent validated network slice.
 
-## Current blocker
-None.
+## Validation status
+- This agent-state migration changes no network Rust/runtime behavior: executable network validation **NOT RUN**.
+- Historical tests/checks attached to prior implementation heads remain historical evidence only.
+- Consumer pin movement: **NOT RUN**.
 
 ## Active work
-- Organization-wide documentation migration continues in sibling repositories.
-- Network-specific next engineering work is to review/reconcile `cleanup/runtime-hardening-clean` against `main` through a normal validated PR if that line remains canonical.
+No runtime work is required from the current identity/map/login convergence pass.
 
-## Important temporary facts
-- Do not change the RakNet exact-SHA dependency pin as unrelated cleanup.
-- Do not merge the maintenance branch or move the server pin without a dedicated review/validation round.
-- Historical benchmark reports are durable evidence in `ardosia-docs`; do not recreate repository-local copies as current operational guidance.
+Keep this repo stable while server/protocol conversion proceeds. Revisit only for a concrete game-agnostic transport defect, a consumer-required network slice, or deliberate branch/pin reconciliation with executable validation.
