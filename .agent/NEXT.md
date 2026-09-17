@@ -1,8 +1,11 @@
 # Next Work
 
-1. Keep the current server-consumed network revision stable while server/protocol identity and inventory convergence proceeds.
-2. Reconcile newer network maintenance work with the consumed revision only as a bounded reviewed slice with the Rust 1.98 network gate actually run.
-3. Move the network -> RakNet pin only when a concrete transport change requires it and both the lower-layer candidate and consuming network slice are executable-validated.
-4. If future research exposes a game-agnostic connection/payload lifecycle delta, implement it here or persist the exact deferment; do not absorb protocol/gameplay semantics into this layer.
+Network runtime work is **paused** while repository hygiene is active.
 
-Documentation centralization is complete and is not active work.
+1. Keep the server-consumed network revision and RakNet pin unchanged during cleanup.
+2. Preserve `cleanup/runtime-hardening-clean` while it remains the source line for the server-consumed revision.
+3. Classify temporary/superseded workflow branches separately from the consumed maintenance line.
+4. After branch cleanup, verify `STATE.md` reflects only live branch/pin facts.
+
+## Parked runtime work
+When explicitly resumed, reconcile newer network maintenance only as a bounded reviewed slice with the Rust 1.98 network gate actually run. Move the network -> RakNet pin only for a concrete validated transport change.
