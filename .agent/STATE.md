@@ -21,9 +21,16 @@ The temporary workflow branch from the 2026-09-17 reconciliation is merged histo
 
 ## Validation
 - Workflow/state reconciliation to `main`: **PASS**.
-- Standalone network Rust validation: **NOT RUN** in this hygiene pass.
+- S001.5 public-facade review at server-consumed revision `f71da57dab3c28e6ccbcee5cbdc3376aac9f7fdd`: **PASS**.
+- Crate-root facade remains exactly `CookieMode`, `NetworkConfig`, `NetworkConfigError`, `NetworkServer`, `Connection`, `Reliability`, and `NetworkError`; no vendor RakNet types escape publicly.
+- Server composition verification: **PASS** — RakNet protocol 8 is hardcoded in `ardosia-server::config` and is not a runtime/deployment option.
+- Standalone network Rust validation: **NOT RUN** — no network source code changed.
 - Consumer pin movement: **NOT RUN**.
 - Runtime code changes: **NOT RUN**.
 
 ## Active work
-Repository hygiene and agent-state reconciliation only. Revisit runtime behavior only after explicit user direction or for a concrete game-agnostic transport defect.
+S001.5 public-facade re-check is complete with no source changes. The small game-agnostic facade is intentionally retained: worker sharding, cookie mode, reliability, opaque payload delivery, typed configuration failure, connection lifecycle, backpressure, and backend lifecycle errors are transport responsibilities rather than Minecraft/game APIs.
+
+The generic RakNet protocol-list constructor is also retained. Ardosia's fixed RakNet-8 target is enforced by server composition, not exposed as runtime configuration. Do not move the server pin during this hygiene pass.
+
+Next cross-repository slice is the server-consumed `ardosia-protocol` facade re-check.
