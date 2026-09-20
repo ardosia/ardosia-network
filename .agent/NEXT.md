@@ -1,11 +1,33 @@
 # Next Work
 
-Network runtime work is **paused** while repository hygiene is active.
+## S001.5 network facade review — complete
 
-1. Keep the server-consumed network revision and RakNet pin unchanged during cleanup.
-2. Preserve `cleanup/runtime-hardening-clean` while it remains the source line for the server-consumed revision.
-3. Classify temporary/superseded workflow branches separately from the consumed maintenance line.
-4. After branch cleanup, verify `STATE.md` reflects only live branch/pin facts.
+Server-consumed revision reviewed: `f71da57dab3c28e6ccbcee5cbdc3376aac9f7fdd`.
 
-## Parked runtime work
-When explicitly resumed, reconcile newer network maintenance only as a bounded reviewed slice with the Rust 1.98 network gate actually run. Move the network -> RakNet pin only for a concrete validated transport change.
+Result: **retain the current public facade with no source changes**.
+
+Intentional public concepts:
+
+- `CookieMode`
+- `NetworkConfig`
+- `NetworkConfigError`
+- `NetworkServer`
+- `Connection`
+- `Reliability`
+- `NetworkError`
+
+Rationale:
+
+- the crate remains game-agnostic and transports opaque connected payloads;
+- no vendor RakNet types escape the public facade;
+- worker sharding/cookies/reliability/backpressure/lifecycle errors are genuine transport concerns;
+- the generic supported-RakNet-protocol list is not an Ardosia runtime version switch: `ardosia-server` fixes protocol 8 in composition.
+
+Validation:
+
+- targeted public API/source review: **PASS**;
+- source changes: **NOT RUN**;
+- standalone Rust gate: **NOT RUN** because source is unchanged;
+- server/network or network/RakNet pin movement: **NOT RUN**.
+
+Cross-repository next action belongs in `ardosia-protocol`: re-check only the public facade consumed by the server for redundant helpers/re-exports.
